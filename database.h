@@ -12,10 +12,35 @@ class Database : public QObject
     Q_OBJECT
 
 public:
-    static Database& getInstance();
+    // 获取单例实例
+    static Database& instance();
+
+    // 连接到数据库
     bool connect();
-    bool isConnected() const;
+
+    // 断开数据库连接
     void disconnect();
+
+    // 检查数据库是否已连接
+    bool isConnected() const { return m_isConnected; }
+
+    // 获取数据库对象
+    QSqlDatabase getDatabase() const {
+        if (!m_isConnected || !m_db.isOpen()) {
+            return QSqlDatabase();
+        }
+        return m_db;
+    }
+
+    // 执行查询（包装函数）
+    bool executeQuery(const QString& queryStr);
+
+    // 用户表操作
+    bool addUser(const QString& username, const QString& password, int role,
+                 int student_id = -1, int teacher_id = -1);
+    bool authenticateUser(const QString& username, const QString& password, int role);
+    QList<QList<QVariant>> getUsers();
+    bool deleteUser(int userId);
 
     // 学生表操作
     bool addStudent(int student_id, const QString& name, int age, int credits = 0);
@@ -51,16 +76,26 @@ public:
     QList<QList<QVariant>> getEnrollments();
 
 private:
+    // 私有构造函数确保单例
     explicit Database(QObject *parent = nullptr);
+
+    // 禁止复制和赋值
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
 
+    // 创建数据库表
     void createTables();
+
+    // 创建默认管理员账户
+    void createDefaultAdmin();
+
+    // 启用外键约束
     bool enableForeignKeys();
 
-    // 通用查询执行函数
-    bool executeQuery(QSqlQuery& query);
-    QList<QList<QVariant>> getData(const QString& queryStr);
+private:
+    bool m_isConnected;
+    QString m_dbPath;
+    QSqlDatabase m_db;  // 数据库连接对象
 };
 
 #endif // DATABASE_H

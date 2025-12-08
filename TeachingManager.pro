@@ -8,15 +8,23 @@ CONFIG += c++17
 TARGET = TeachingManager
 TEMPLATE = app
 
+# 添加新的源文件和头文件
 SOURCES += \
     main.cpp \
     mainwindow.cpp \
-    database.cpp
+    database.cpp \
+    user.cpp \
+    logindialog.cpp
 
 HEADERS += \
     common.h \
     mainwindow.h \
-    database.h
+    database.h \
+    user.h \
+    logindialog.h
+
+FORMS += \
+    logindialog.ui  # 去掉重复的行
 
 # 添加资源文件（用于数据库配置）
 RESOURCES +=

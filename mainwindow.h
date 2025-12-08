@@ -7,6 +7,8 @@
 #include <QElapsedTimer>
 #include "common.h"
 #include "database.h"
+#include "user.h"
+#include "logindialog.h"
 
 class MainWindow : public QMainWindow
 {
@@ -59,6 +61,7 @@ private:
     void createTeachingTab();
     void createEnrollmentTab();
     void createSQLTab();
+    void createUserManagementTab();  // 添加这行
 
     // 表格数据加载通用函数
     void loadTableData(QTableWidget* table, const QList<QList<QVariant>>& data);
@@ -69,6 +72,7 @@ private:
     void onCourseSelected(int row);
     void onTeachingSelected(int row);
     void onEnrollmentSelected(int row);
+    void onUserSelected(int row);  // 添加这行
 
     // 通用表格设置函数
     void setupTable(QTableWidget* table, const QStringList& headers);
@@ -101,6 +105,11 @@ private:
     QLineEdit *enrollmentStudentIdEdit, *enrollmentTeacherIdEdit, *enrollmentCourseIdEdit,
         *enrollmentSemesterEdit, *enrollmentScoreEdit;
 
+    // 用户管理组件 - 添加这些成员变量
+    QTableWidget *userTable;
+    QLineEdit *userUsernameEdit, *userPasswordEdit, *userStudentIdEdit, *userTeacherIdEdit;
+    QComboBox *userRoleCombo;
+
     // SQL执行组件
     QTextEdit *sqlInputEdit, *sqlOutputEdit;
     QPushButton *sqlExecuteButton, *sqlClearButton;
@@ -108,6 +117,24 @@ private:
 
     // SQL执行相关函数
     void executeSQLQuery(const QString &sql);
+
+    // 用户相关成员
+    User m_currentUser;
+    QLabel *userStatusLabel;
+
+    // 权限控制相关方法
+    void setupPermissions();
+    void showPermissionDenied();
+    bool checkPermission(bool hasPermission, const QString& actionName);
+
+    // 用户管理函数
+    void loadUsers();
+    void addUser();
+    void deleteUser();
+    void updateUser();
+    void updateUserRole();
+    void clearUserInputs();
+    QString hashPassword(const QString &password);
 };
 
 #endif // MAINWINDOW_H
