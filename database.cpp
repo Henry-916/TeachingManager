@@ -2,13 +2,10 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QDebug>
-#include <QVariant>
 #include <QDir>
+#include <QSqlRecord>
 
-Database::Database(QObject *parent) : QObject(parent)
-{
-    // SQLite不需要配置文件
-}
+Database::Database(QObject *parent) : QObject(parent) {}
 
 Database& Database::getInstance()
 {
@@ -18,12 +15,8 @@ Database& Database::getInstance()
 
 bool Database::connect()
 {
-    // 使用SQLite（Qt内置驱动）
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
-
-    // 设置SQLite数据库文件路径
     QString dbPath = QApplication::applicationDirPath() + "/teaching_manager.db";
-    qDebug() << "数据库文件路径:" << dbPath;
     db.setDatabaseName(dbPath);
 
     if (!db.open()) {
@@ -33,14 +26,8 @@ bool Database::connect()
         return false;
     }
 
-    // 启用外键约束
-    if (!enableForeignKeys()) {
-        qWarning() << "警告: 无法启用外键约束";
-    }
-
-    // 创建表
+    enableForeignKeys();
     createTables();
-
     qDebug() << "SQLite数据库连接成功!";
     return true;
 }
@@ -53,61 +40,51 @@ bool Database::enableForeignKeys()
 
 void Database::createTables()
 {
-    QSqlQuery query;
+    QStringList tableQueries = {
+        "CREATE TABLE IF NOT EXISTS students ("
+        "student_id INTEGER PRIMARY KEY, "
+        "name TEXT NOT NULL, "
+        "age INTEGER, "
+        "credits INTEGER DEFAULT 0)",
 
-    // 1. 学生表
-    if (!query.exec("CREATE TABLE IF NOT EXISTS students ("
-                    "student_id INTEGER PRIMARY KEY, "
-                    "name TEXT NOT NULL, "
-                    "age INTEGER, "
-                    "credits INTEGER DEFAULT 0)")) {
-        qWarning() << "创建学生表失败:" << query.lastError().text();
+        "CREATE TABLE IF NOT EXISTS teachers ("
+        "teacher_id INTEGER PRIMARY KEY, "
+        "name TEXT NOT NULL, "
+        "age INTEGER)",
+
+        "CREATE TABLE IF NOT EXISTS courses ("
+        "course_id INTEGER PRIMARY KEY, "
+        "name TEXT NOT NULL, "
+        "credit REAL)",
+
+        "CREATE TABLE IF NOT EXISTS teachings ("
+        "teacher_id INTEGER, "
+        "course_id INTEGER, "
+        "semester TEXT, "
+        "class_time TEXT, "
+        "classroom TEXT, "
+        "PRIMARY KEY (teacher_id, course_id, semester), "
+        "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
+        "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)",
+
+        "CREATE TABLE IF NOT EXISTS enrollments ("
+        "student_id INTEGER, "
+        "teacher_id INTEGER, "
+        "course_id INTEGER, "
+        "semester TEXT, "
+        "score REAL DEFAULT 0, "
+        "PRIMARY KEY (student_id, teacher_id, course_id, semester), "
+        "FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE, "
+        "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
+        "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)"
+    };
+
+    for (const auto& queryStr : tableQueries) {
+        QSqlQuery query;
+        if (!query.exec(queryStr)) {
+            qWarning() << "创建表失败:" << query.lastError().text();
+        }
     }
-
-    // 2. 教师表
-    if (!query.exec("CREATE TABLE IF NOT EXISTS teachers ("
-                    "teacher_id INTEGER PRIMARY KEY, "
-                    "name TEXT NOT NULL, "
-                    "age INTEGER)")) {
-        qWarning() << "创建教师表失败:" << query.lastError().text();
-    }
-
-    // 3. 课程表
-    if (!query.exec("CREATE TABLE IF NOT EXISTS courses ("
-                    "course_id INTEGER PRIMARY KEY, "
-                    "name TEXT NOT NULL, "
-                    "credit REAL)")) {
-        qWarning() << "创建课程表失败:" << query.lastError().text();
-    }
-
-    // 4. 授课表
-    if (!query.exec("CREATE TABLE IF NOT EXISTS teachings ("
-                    "teacher_id INTEGER, "
-                    "course_id INTEGER, "
-                    "semester TEXT, "
-                    "class_time TEXT, "
-                    "classroom TEXT, "
-                    "PRIMARY KEY (teacher_id, course_id, semester), "
-                    "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
-                    "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)")) {
-        qWarning() << "创建授课表失败:" << query.lastError().text();
-    }
-
-    // 5. 选课成绩表
-    if (!query.exec("CREATE TABLE IF NOT EXISTS enrollments ("
-                    "student_id INTEGER, "
-                    "teacher_id INTEGER, "
-                    "course_id INTEGER, "
-                    "semester TEXT, "
-                    "score REAL DEFAULT 0, "
-                    "PRIMARY KEY (student_id, teacher_id, course_id, semester), "
-                    "FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE, "
-                    "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
-                    "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)")) {
-        qWarning() << "创建选课成绩表失败:" << query.lastError().text();
-    }
-
-    qDebug() << "所有数据表创建成功!";
 }
 
 bool Database::isConnected() const

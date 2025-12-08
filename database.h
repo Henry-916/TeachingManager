@@ -5,6 +5,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QVariant>
 
 class Database : public QObject
 {
@@ -54,8 +55,12 @@ private:
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
 
-    void createTables();  // 创建数据库表
-    bool enableForeignKeys();  // 启用外键约束
+    void createTables();
+    bool enableForeignKeys();
+
+    // 通用查询执行函数
+    bool executeQuery(QSqlQuery& query);
+    QList<QList<QVariant>> getData(const QString& queryStr);
 };
 
 #endif // DATABASE_H

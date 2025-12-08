@@ -14,6 +14,7 @@ SOURCES += \
     database.cpp
 
 HEADERS += \
+    common.h \
     mainwindow.h \
     database.h
 
