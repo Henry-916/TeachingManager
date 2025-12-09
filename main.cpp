@@ -1,24 +1,39 @@
 #include "mainwindow.h"
+#include "logindialog.h"
+#include "database.h"
 #include <QApplication>
+#include <QStyleFactory>
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+
+    // 设置应用样式
+    a.setStyle(QStyleFactory::create("Fusion"));
 
     // 设置应用信息
     a.setApplicationName("TeachingManager");
     a.setApplicationVersion("1.0.0");
     a.setOrganizationName("TeachingSystem");
 
-    // 创建主窗口
-    MainWindow w;
-
-    // 检查窗口是否有效（用户是否成功登录）
-    if (!w.isVisible()) {
-        // 如果窗口不可见（用户取消了登录），直接退出
-        return 0;
+    // 先连接数据库
+    Database &db = Database::getInstance();
+    if (!db.connect()) {
+        return -1;
     }
 
+    // 显示登录对话框
+    LoginDialog login(db);
+    if (login.exec() != QDialog::Accepted) {
+        return 0;  // 用户取消登录
+    }
+
+    // 获取当前用户
+    User currentUser = login.getCurrentUser();
+
+    // 显示主窗口，传入当前用户
+    MainWindow w(currentUser);
     w.show();
+
     return a.exec();
 }

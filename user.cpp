@@ -40,7 +40,19 @@ bool User::canManageEnrollments() const
     // 学生只能查看和管理自己的选课
     // 教师可以管理自己课程的成绩
     // 管理员可以管理所有选课
-    return true;
+    switch (m_role) {
+    case UserRole::Student:
+        // 学生只能查看自己的选课
+        return false;  // 或者根据具体业务逻辑调整
+    case UserRole::Teacher:
+        // 教师可以管理自己课程的成绩
+        return true;
+    case UserRole::Admin:
+        // 管理员可以管理所有选课
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool User::canExecuteSQL() const

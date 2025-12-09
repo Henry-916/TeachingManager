@@ -1,104 +1,83 @@
 #include "mainwindow.h"
-#include <QShortcut>
-#include <QElapsedTimer>
-#include <QFileDialog>
-#include <QFileInfo>
-#include <QTextStream>
 #include <QSqlRecord>
 #include <QSqlField>
-#include <QFont>
 #include <QApplication>
 #include <QComboBox>
-#include <QCryptographicHash>
+#include <QPushButton>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGridLayout>
+#include <QMessageBox>
 #include <QCheckBox>
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(const User &user, QWidget *parent)
     : QMainWindow(parent)
-    , db(Database::instance())
+    , db(Database::getInstance())
+    , m_currentUser(user)  // 拷贝构造当前用户
 {
     setWindowTitle("教学管理系统");
     setMinimumSize(1000, 700);
 
-    // 先连接数据库
-    if (!db.connect()) {
-        QMessageBox::critical(nullptr, "错误", "无法连接到数据库");
-        return;  // 不要调用exit，让窗口自然关闭
-    }
-
-    // 显示登录对话框
-    LoginDialog loginDialog(db);
-
-    // 显示登录对话框
-    if (loginDialog.exec() != QDialog::Accepted) {
-        // 用户关闭了登录窗口，直接返回
-        // 窗口将被销毁，程序自然结束
-        return;
-    }
-
-    // 登录成功
-    m_currentUser = loginDialog.getCurrentUser();
+    // 先设置UI再设置权限
     setupUI();
     setupPermissions();
 
-    // 根据权限加载数据
-    if (m_currentUser.canManageStudents()) loadStudents();
-    if (m_currentUser.canManageTeachers()) loadTeachers();
-    if (m_currentUser.canManageCourses()) loadCourses();
-    if (m_currentUser.canManageTeachings()) loadTeachings();
-    if (m_currentUser.canManageEnrollments()) loadEnrollments();
+    // 加载数据
+    loadStudents();
+    loadTeachers();
+    loadCourses();
+    loadTeachings();
+    loadEnrollments();
 }
 
 MainWindow::~MainWindow()
 {
-
+    db.disconnect();
 }
 
 void MainWindow::setupUI()
 {
-    // 创建中心部件和布局
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
+
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
-
-    // 添加用户状态栏
-    QHBoxLayout *statusLayout = new QHBoxLayout();
-    userStatusLabel = new QLabel();
-    QString statusText = QString("当前用户: %1 (%2)")
-                             .arg(m_currentUser.getUsername())
-                             .arg(m_currentUser.getRoleString());
-    userStatusLabel->setText(statusText);
-    statusLayout->addWidget(userStatusLabel);
-    statusLayout->addStretch();
-
-    // 添加登出按钮
-    QPushButton *logoutButton = new QPushButton("登出");
-    connect(logoutButton, &QPushButton::clicked, this, [this]() {
-        if (QMessageBox::question(this, "确认", "确定要登出吗？") == QMessageBox::Yes) {
-            this->close();
-        }
-    });
-    statusLayout->addWidget(logoutButton);
-
-    mainLayout->addLayout(statusLayout);
-
-    // 创建标签页
     tabWidget = new QTabWidget(this);
     mainLayout->addWidget(tabWidget);
 
-    // 根据权限创建标签页
-    if (m_currentUser.canManageStudents()) createStudentTab();
-    if (m_currentUser.canManageTeachers()) createTeacherTab();
-    if (m_currentUser.canManageCourses()) createCourseTab();
-    if (m_currentUser.canManageTeachings()) createTeachingTab();
-    if (m_currentUser.canManageEnrollments()) createEnrollmentTab();
-    if (m_currentUser.canExecuteSQL()) createSQLTab();
-    if (m_currentUser.canManageUsers()) createUserManagementTab();  // 确保这行存在
+    createStudentTab();
+    createTeacherTab();
+    createCourseTab();
+    createTeachingTab();
+    createEnrollmentTab();
+
+    // 根据用户权限决定是否显示用户管理标签页
+    if (m_currentUser.canManageUsers()) {
+        createUserManagementTab();
+    }
+
+    createSQLTab();  // 只有管理员可以执行SQL
+
+    // 添加用户状态标签
+    userStatusLabel = new QLabel();
+    userStatusLabel->setText(QString("当前用户: %1 [%2]")
+                                 .arg(m_currentUser.getUsername())
+                                 .arg(m_currentUser.getRoleString()));
+    userStatusLabel->setAlignment(Qt::AlignRight);
+    mainLayout->addWidget(userStatusLabel);
 }
 
 void MainWindow::setupPermissions()
 {
     // 根据用户角色设置窗口标题
-    setWindowTitle(QString("教学管理系统 - %1").arg(m_currentUser.getRoleString()));
+    setWindowTitle(QString("教学管理系统 - %1 [%2]")
+                       .arg(m_currentUser.getUsername())
+                       .arg(m_currentUser.getRoleString()));
+
+    // 可以在这里根据用户角色禁用某些标签页或按钮
 }
 
 bool MainWindow::checkPermission(bool hasPermission, const QString& actionName)
@@ -916,15 +895,12 @@ void MainWindow::addUser()
         return;
     }
 
-    // 计算密码哈希
-    QString hashedPassword = hashPassword(password);
-
-    // 插入用户
+    // 插入用户 - 使用明文密码
     QSqlQuery query;
     query.prepare("INSERT INTO users (username, password, role, student_id, teacher_id) "
                   "VALUES (?, ?, ?, ?, ?)");
     query.addBindValue(username);
-    query.addBindValue(hashedPassword);
+    query.addBindValue(password);  // 明文存储
     query.addBindValue(role);
 
     if (!studentIdStr.isEmpty()) {
@@ -1001,7 +977,7 @@ void MainWindow::updateUser()
     QString oldUsername = userTable->item(row, 1)->text();
 
     QString newUsername = userUsernameEdit->text().trimmed();
-    QString newPassword = userPasswordEdit->text();
+    QString newPassword = userPasswordEdit->text();  // 明文密码
     int newRole = userRoleCombo->currentData().toInt();
     QString studentIdStr = userStudentIdEdit->text().trimmed();
     QString teacherIdStr = userTeacherIdEdit->text().trimmed();
@@ -1024,12 +1000,12 @@ void MainWindow::updateUser()
         }
     }
 
-    // 更新用户信息
+    // 更新用户信息 - 使用明文密码
     QSqlQuery query;
     query.prepare("UPDATE users SET username = ?, password = ?, role = ?, "
                   "student_id = ?, teacher_id = ? WHERE user_id = ?");
     query.addBindValue(newUsername);
-    query.addBindValue(newPassword);
+    query.addBindValue(newPassword);  // 明文存储
     query.addBindValue(newRole);
 
     if (!studentIdStr.isEmpty()) {
@@ -1087,13 +1063,6 @@ void MainWindow::clearUserInputs()
     userRoleCombo->setCurrentIndex(0);
     userStudentIdEdit->clear();
     userTeacherIdEdit->clear();
-}
-
-// 密码哈希函数
-QString MainWindow::hashPassword(const QString &password)
-{
-    QByteArray hash = QCryptographicHash::hash(password.toUtf8(), QCryptographicHash::Sha256);
-    return QString(hash.toHex());
 }
 
 // SQL执行标签页

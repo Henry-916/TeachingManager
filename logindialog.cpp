@@ -49,24 +49,22 @@ void LoginDialog::onLoginButtonClicked()
     qDebug() << "密码:" << password;
     qDebug() << "角色:" << role;
 
-    // 使用Database类的authenticateUser方法
-    if (m_db.authenticateUser(username, password, role)) {
-        // 获取用户ID
-        QSqlQuery query(m_db.getDatabase());
-        query.prepare("SELECT user_id FROM users WHERE username = ?");
-        query.addBindValue(username);
+    QSqlQuery query;
+    query.prepare("SELECT user_id, username, role FROM users "
+                  "WHERE username = ? AND password = ? AND role = ?");
+    query.addBindValue(username);
+    query.addBindValue(password);  // 明文比较
+    query.addBindValue(role);
 
-        if (query.exec() && query.next()) {
-            int userId = query.value(0).toInt();
-            UserRole userRole = static_cast<UserRole>(role);
-            m_currentUser = User(userId, username, userRole);
-            m_loggedIn = true;
-            qDebug() << "登录成功!";
-            accept();
-        } else {
-            QMessageBox::warning(this, "登录失败", "获取用户信息失败");
-        }
+    if (query.exec() && query.next()) {
+        int userId = query.value(0).toInt();
+        UserRole userRole = static_cast<UserRole>(role);
+        m_currentUser = User(userId, username, userRole);
+        m_loggedIn = true;
+        qDebug() << "登录成功!";
+        accept();
     } else {
+        qDebug() << "登录失败: 用户名或密码错误";
         QMessageBox::warning(this, "登录失败", "用户名或密码错误");
     }
 }
@@ -83,7 +81,7 @@ void LoginDialog::onRegisterButtonClicked()
     }
 
     // 检查用户名是否已存在
-    QSqlQuery checkQuery(m_db.getDatabase());
+    QSqlQuery checkQuery;
     checkQuery.prepare("SELECT COUNT(*) FROM users WHERE username = ?");
     checkQuery.addBindValue(username);
 
@@ -92,8 +90,13 @@ void LoginDialog::onRegisterButtonClicked()
         return;
     }
 
-    // 使用Database类的addUser方法
-    if (m_db.addUser(username, password, role)) {
+    QSqlQuery query;
+    query.prepare("INSERT INTO users (username, password, role) VALUES (?, ?, ?)");
+    query.addBindValue(username);
+    query.addBindValue(password);  // 明文存储
+    query.addBindValue(role);
+
+    if (query.exec()) {
         QMessageBox::information(this, "注册成功", "用户注册成功，请登录");
     } else {
         QMessageBox::warning(this, "注册失败", "用户注册失败");

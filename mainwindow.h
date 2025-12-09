@@ -15,7 +15,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    MainWindow(QWidget *parent = nullptr);
+    MainWindow(const User &user, QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:
@@ -54,6 +54,7 @@ private slots:
 
 private:
     void setupUI();
+    void setupPermissions();
 
     void createStudentTab();
     void createTeacherTab();
@@ -123,7 +124,6 @@ private:
     QLabel *userStatusLabel;
 
     // 权限控制相关方法
-    void setupPermissions();
     void showPermissionDenied();
     bool checkPermission(bool hasPermission, const QString& actionName);
 
@@ -134,7 +134,6 @@ private:
     void updateUser();
     void updateUserRole();
     void clearUserInputs();
-    QString hashPassword(const QString &password);
 };
 
 #endif // MAINWINDOW_H
