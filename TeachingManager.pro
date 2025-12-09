@@ -10,6 +10,7 @@ TEMPLATE = app
 
 # 添加新的源文件和头文件
 SOURCES += \
+    DataManager.cpp \
     main.cpp \
     mainwindow.cpp \
     database.cpp \
@@ -17,6 +18,7 @@ SOURCES += \
     logindialog.cpp
 
 HEADERS += \
+    DataManager.h \
     common.h \
     mainwindow.h \
     database.h \
