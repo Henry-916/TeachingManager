@@ -10,23 +10,28 @@ TEMPLATE = app
 
 # 添加新的源文件和头文件
 SOURCES += \
-    DataManager.cpp \
+    basewindow.cpp \
+    utils.cpp \
+    database.cpp \
     main.cpp \
     mainwindow.cpp \
-    database.cpp \
     user.cpp \
-    logindialog.cpp
+    logindialog.cpp \
+    studentwindow.cpp \
+    teacherwindow.cpp
 
 HEADERS += \
-    DataManager.h \
-    common.h \
-    mainwindow.h \
+    basewindow.h \
+    utils.h \
     database.h \
+    mainwindow.h \
     user.h \
-    logindialog.h
+    logindialog.h \
+    studentwindow.h \
+    teacherwindow.h
 
 FORMS += \
-    logindialog.ui  # 去掉重复的行
+    logindialog.ui
 
-# 添加资源文件（用于数据库配置）
+# 添加资源文件
 RESOURCES +=

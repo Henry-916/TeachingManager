@@ -6,49 +6,55 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QVariant>
+#include <QMap>
 
 class Database : public QObject
 {
     Q_OBJECT
 
 public:
+    bool hasAdmin() const;
+    bool isCurrentUserAdmin(int userId);
+
     static Database& getInstance();
     bool connect();
     bool isConnected() const;
-    void disconnect();
 
-    // 学生表操作
-    bool addStudent(int student_id, const QString& name, int age, int credits = 0);
-    bool updateStudent(int student_id, const QString& name, int age, int credits);
-    bool deleteStudent(int student_id);
-    QList<QList<QVariant>> getStudents();
+    // 通用操作（针对单主键表）
+    bool executeInsert(const QString& table, const QVariantMap& data);
+    bool executeUpdate(const QString& table, int id, const QVariantMap& data);
+    bool executeDelete(const QString& table, int id);
+    QList<QMap<QString, QVariant>> executeSelect(const QString& table,
+                                                 const QString& condition = "");
 
-    // 教师表操作
-    bool addTeacher(int teacher_id, const QString& name, int age);
-    bool updateTeacher(int teacher_id, const QString& name, int age);
-    bool deleteTeacher(int teacher_id);
-    QList<QList<QVariant>> getTeachers();
-
-    // 课程表操作
-    bool addCourse(int course_id, const QString& name, float credit);
-    bool updateCourse(int course_id, const QString& name, float credit);
-    bool deleteCourse(int course_id);
-    QList<QList<QVariant>> getCourses();
-
-    // 授课表操作
-    bool addTeaching(int teacher_id, int course_id, const QString& semester,
-                     const QString& class_time, const QString& classroom);
-    bool deleteTeaching(int teacher_id, int course_id, const QString& semester);
-    QList<QList<QVariant>> getTeachings();
-
-    // 选课成绩表操作
-    bool addEnrollment(int student_id, int teacher_id, int course_id,
-                       const QString& semester, float score = 0.0);
-    bool updateEnrollmentScore(int student_id, int teacher_id, int course_id,
-                               const QString& semester, float score);
-    bool deleteEnrollment(int student_id, int teacher_id, int course_id,
+    // 复合主键表的特殊操作
+    bool updateTeaching(int teacherId, int courseId, const QString& semester,
+                        const QVariantMap& data);
+    bool deleteTeaching(int teacherId, int courseId, const QString& semester);
+    bool updateEnrollment(int studentId, int teacherId, int courseId,
+                          const QString& semester, const QVariantMap& data);
+    bool deleteEnrollment(int studentId, int teacherId, int courseId,
                           const QString& semester);
-    QList<QList<QVariant>> getEnrollments();
+
+    // 特殊查询
+    QList<QMap<QString, QVariant>> getTeachings();
+    QList<QMap<QString, QVariant>> getEnrollments();
+    QList<QMap<QString, QVariant>> getUsers();
+
+    // 用户管理
+    bool addUser(const QString& username, const QString& password, int role,
+                 const QVariant& studentId, const QVariant& teacherId);
+    bool updateUser(int userId, const QString& username, const QString& password,
+                    int role, const QVariant& studentId, const QVariant& teacherId);
+    bool deleteUser(int userId);
+    bool checkUsernameExists(const QString& username, int excludeUserId = -1);
+
+    // SQL执行
+    QString executeSQL(const QString& sql);
+
+    // 登录验证
+    bool validateUser(const QString& username, const QString& password,
+                      int role, int& userId);
 
 private:
     explicit Database(QObject *parent = nullptr);
@@ -58,9 +64,8 @@ private:
     void createTables();
     bool enableForeignKeys();
 
-    // 通用查询执行函数
-    bool executeQuery(QSqlQuery& query);
-    QList<QList<QVariant>> getData(const QString& queryStr);
+    // 主键映射
+    QMap<QString, QString> m_primaryKeys;
 };
 
 #endif // DATABASE_H

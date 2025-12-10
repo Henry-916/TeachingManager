@@ -2,11 +2,13 @@
 #define LOGINDIALOG_H
 
 #include <QDialog>
+#include <QComboBox>
+#include <QTimer>
 #include "database.h"
 #include "user.h"
 
-namespace Ui {
-class LoginDialog;
+              namespace Ui {
+    class LoginDialog;
 }
 
 class LoginDialog : public QDialog
@@ -22,13 +24,15 @@ public:
 
 private slots:
     void onLoginButtonClicked();
-    void onRegisterButtonClicked();
+    void onRoleChanged(int index);
 
 private:
     Ui::LoginDialog *ui;
     Database &m_db;
     User m_currentUser;
     bool m_loggedIn;
+
+    void updateUIForRole(int role);
 };
 
 #endif // LOGINDIALOG_H

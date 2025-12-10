@@ -1,30 +1,20 @@
 #include "mainwindow.h"
-#include "DataManager.h"
+#include "utils.h"
 #include <QApplication>
 #include <QMessageBox>
 #include <QCheckBox>
 #include <QSqlQuery>
-#include <QElapsedTimer>
-#include <QSqlRecord>
-#include <QSqlError>
 #include <QVBoxLayout>
-#include <QHeaderView>
+#include <QHBoxLayout>
+#include <QGridLayout>
+#include <QGroupBox>
 
 MainWindow::MainWindow(const User &user, QWidget *parent)
-    : QMainWindow(parent), dataManager(DataManager::getInstance()), m_currentUser(user)
+    : BaseWindow(user, parent)
 {
-    setWindowTitle("教学管理系统");
-    setMinimumSize(1000, 700);
-
+    setupTopBar();  // 调用基类的顶部栏设置
     setupUI();
     setupPermissions();
-
-    // 加载初始数据
-    loadStudents();
-    loadTeachers();
-    loadCourses();
-    loadTeachings();
-    loadEnrollments();
 }
 
 MainWindow::~MainWindow()
@@ -34,68 +24,58 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
+    // 创建中央部件和主布局
     QWidget *centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
-
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+    mainLayout->setContentsMargins(0, 0, 0, 0);  // 移除边距
+    mainLayout->setSpacing(0);
+
+    // 添加顶部栏
+    mainLayout->addWidget(topBarWidget);
+
+    // 添加标签页
     tabWidget = new QTabWidget(this);
     mainLayout->addWidget(tabWidget);
 
-    // 使用通用函数创建管理标签页
-    createManagementTab("学生管理",
+    setCentralWidget(centralWidget);
+
+    // 学生管理标签页
+    createManagementTab("学生管理", "students",
                         {"学号", "姓名", "年龄", "学分"},
-                        {{"学号:", &studentIdEdit},
-                         {"姓名:", &studentNameEdit},
-                         {"年龄:", &studentAgeEdit},
-                         {"学分:", &studentCreditsEdit}},
-                        std::bind(&MainWindow::loadStudents, this),
-                        std::bind(&MainWindow::addStudent, this),
-                        std::bind(&MainWindow::updateStudent, this),
-                        std::bind(&MainWindow::deleteStudent, this),
-                        std::bind(&MainWindow::onStudentSelected, this, std::placeholders::_1),
-                        &studentTable);
+                        {{"student_id", "学号:"},
+                         {"name", "姓名:"},
+                         {"age", "年龄:"},
+                         {"credits", "学分:"}});
 
-    createManagementTab("教师管理",
+    // 教师管理标签页
+    createManagementTab("教师管理", "teachers",
                         {"工号", "姓名", "年龄"},
-                        {{"工号:", &teacherIdEdit},
-                         {"姓名:", &teacherNameEdit},
-                         {"年龄:", &teacherAgeEdit}},
-                        std::bind(&MainWindow::loadTeachers, this),
-                        std::bind(&MainWindow::addTeacher, this),
-                        std::bind(&MainWindow::updateTeacher, this),
-                        std::bind(&MainWindow::deleteTeacher, this),
-                        std::bind(&MainWindow::onTeacherSelected, this, std::placeholders::_1),
-                        &teacherTable);
+                        {{"teacher_id", "工号:"},
+                         {"name", "姓名:"},
+                         {"age", "年龄:"}});
 
-    createManagementTab("课程管理",
+    // 课程管理标签页
+    createManagementTab("课程管理", "courses",
                         {"课程ID", "课程名称", "学分"},
-                        {{"课程ID:", &courseIdEdit},
-                         {"课程名称:", &courseNameEdit},
-                         {"学分:", &courseCreditEdit}},
-                        std::bind(&MainWindow::loadCourses, this),
-                        std::bind(&MainWindow::addCourse, this),
-                        std::bind(&MainWindow::updateCourse, this),
-                        std::bind(&MainWindow::deleteCourse, this),
-                        std::bind(&MainWindow::onCourseSelected, this, std::placeholders::_1),
-                        &courseTable);
+                        {{"course_id", "课程ID:"},
+                         {"name", "课程名称:"},
+                         {"credit", "学分:"}});
 
-    // 其他特殊标签页（需要自定义布局）
+    // 授课管理标签页
     createTeachingTab();
+
+    // 选课管理标签页
     createEnrollmentTab();
 
+    // 用户管理标签页（仅管理员可见）
     if (m_currentUser.canManageUsers()) {
         createUserManagementTab();
     }
 
-    createSQLTab();
-
-    // 用户状态标签
-    userStatusLabel = new QLabel();
-    userStatusLabel->setText(QString("当前用户: %1 [%2]")
-                                 .arg(m_currentUser.getUsername())
-                                 .arg(m_currentUser.getRoleString()));
-    userStatusLabel->setAlignment(Qt::AlignRight);
-    mainLayout->addWidget(userStatusLabel);
+    // SQL执行标签页
+    if (m_currentUser.canExecuteSQL()) {
+        createSQLTab();
+    }
 }
 
 void MainWindow::setupPermissions()
@@ -106,62 +86,38 @@ void MainWindow::setupPermissions()
                        .arg(m_currentUser.getRoleString()));
 }
 
-bool MainWindow::checkPermission(bool hasPermission, const QString& actionName)
-{
-    if (!hasPermission) {
-        QMessageBox::warning(this, "权限不足",
-                             QString("您没有%1的权限").arg(actionName));
-        return false;
-    }
-    return true;
-}
-
-void MainWindow::showPermissionDenied()
-{
-    QMessageBox::warning(this, "权限不足", "您没有执行此操作的权限");
-}
-
-void MainWindow::setupTable(QTableWidget* table, const QStringList& headers)
-{
-    table->setColumnCount(headers.size());
-    table->setHorizontalHeaderLabels(headers);
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    table->setAlternatingRowColors(true);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-}
-
-// 通用管理标签页创建函数
-void MainWindow::createManagementTab(
-    const QString& tabName,
-    const QStringList& headers,
-    const QList<QPair<QString, QLineEdit**>>& fieldConfigs,
-    std::function<void()> loadFunc,
-    std::function<void()> addFunc,
-    std::function<void()> updateFunc,
-    std::function<void()> deleteFunc,
-    std::function<void(int)> selectFunc,
-    QTableWidget** tablePtr)
+void MainWindow::createManagementTab(const QString& tabName,
+                                     const QString& tableName,
+                                     const QStringList& headers,
+                                     const QVector<QPair<QString, QString>>& fieldConfigs)
 {
     QWidget* tab = new QWidget();
     QVBoxLayout* layout = new QVBoxLayout(tab);
 
     // 创建表格
-    *tablePtr = new QTableWidget();
-    setupTable(*tablePtr, headers);
-    layout->addWidget(*tablePtr);
+    QTableWidget* table = new QTableWidget();
+    setupTable(table, headers);
+    layout->addWidget(table);
+
+    // 存储表格引用
+    tableMap[tableName] = table;
 
     // 创建输入区域
     QGridLayout* inputLayout = new QGridLayout();
+    QVector<QLineEdit*> inputs;
 
     for (int i = 0; i < fieldConfigs.size(); ++i) {
         const auto& config = fieldConfigs[i];
-        QLabel* label = new QLabel(config.first);
-        *(config.second) = new QLineEdit();  // 创建并赋值给成员变量
+        QLabel* label = new QLabel(config.second);
+        QLineEdit* edit = new QLineEdit();
+        inputs.append(edit);
 
         inputLayout->addWidget(label, i / 2, (i % 2) * 2);
-        inputLayout->addWidget(*(config.second), i / 2, (i % 2) * 2 + 1);
+        inputLayout->addWidget(edit, i / 2, (i % 2) * 2 + 1);
     }
+
+    // 存储输入框引用
+    inputMap[tableName] = inputs;
 
     layout->addLayout(inputLayout);
 
@@ -181,19 +137,31 @@ void MainWindow::createManagementTab(
     layout->addLayout(buttonLayout);
 
     // 连接信号槽
-    connect(addButton, &QPushButton::clicked, addFunc);
-    connect(updateButton, &QPushButton::clicked, updateFunc);
-    connect(deleteButton, &QPushButton::clicked, deleteFunc);
-    connect(refreshButton, &QPushButton::clicked, loadFunc);
+    connect(addButton, &QPushButton::clicked, [this, tableName]() {
+        addRecord(tableName, tableMap[tableName]);
+    });
 
-    connect(*tablePtr, &QTableWidget::itemSelectionChanged, [=]() {
-        auto items = (*tablePtr)->selectedItems();
+    connect(updateButton, &QPushButton::clicked, [this, tableName]() {
+        updateRecord(tableName, tableMap[tableName]);
+    });
+
+    connect(deleteButton, &QPushButton::clicked, [this, tableName]() {
+        deleteRecord(tableName, tableMap[tableName]);
+    });
+
+    connect(refreshButton, &QPushButton::clicked, [this, tableName]() {
+        loadTable(tableName, tableMap[tableName]);
+    });
+
+    connect(table, &QTableWidget::itemSelectionChanged, [this, tableName, inputs]() {
+        auto items = tableMap[tableName]->selectedItems();
         if (!items.isEmpty()) {
-            selectFunc(items.first()->row());
+            onRecordSelected(tableMap[tableName], inputs);
         }
     });
 
     tabWidget->addTab(tab, tabName);
+    loadTable(tableName, table);
 }
 
 void MainWindow::createTeachingTab()
@@ -201,18 +169,24 @@ void MainWindow::createTeachingTab()
     QWidget *teachingTab = new QWidget();
     QVBoxLayout *layout = new QVBoxLayout(teachingTab);
 
+    // 创建表格
     teachingTable = new QTableWidget();
     QStringList headers = {"教师工号", "教师姓名", "课程ID", "课程名称", "学期", "上课时间", "教室"};
     setupTable(teachingTable, headers);
     layout->addWidget(teachingTable);
 
+    // 输入区域
     QGridLayout *inputLayout = new QGridLayout();
 
+    QVector<QLineEdit*> teachingInputs;
     teachingTeacherIdEdit = new QLineEdit();
     teachingCourseIdEdit = new QLineEdit();
     teachingSemesterEdit = new QLineEdit();
     teachingClassTimeEdit = new QLineEdit();
     teachingClassroomEdit = new QLineEdit();
+
+    teachingInputs = {teachingTeacherIdEdit, teachingCourseIdEdit,
+                      teachingSemesterEdit, teachingClassTimeEdit, teachingClassroomEdit};
 
     inputLayout->addWidget(new QLabel("教师工号:"), 0, 0);
     inputLayout->addWidget(teachingTeacherIdEdit, 0, 1);
@@ -227,6 +201,7 @@ void MainWindow::createTeachingTab()
 
     layout->addLayout(inputLayout);
 
+    // 按钮区域
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     QPushButton *addButton = new QPushButton("添加");
     QPushButton *deleteButton = new QPushButton("删除");
@@ -239,18 +214,20 @@ void MainWindow::createTeachingTab()
 
     layout->addLayout(buttonLayout);
 
+    // 连接信号槽
     connect(addButton, &QPushButton::clicked, this, &MainWindow::addTeaching);
     connect(deleteButton, &QPushButton::clicked, this, &MainWindow::deleteTeaching);
     connect(refreshButton, &QPushButton::clicked, this, &MainWindow::loadTeachings);
 
-    connect(teachingTable, &QTableWidget::itemSelectionChanged, [this]() {
+    connect(teachingTable, &QTableWidget::itemSelectionChanged, [this, teachingInputs]() {
         auto items = teachingTable->selectedItems();
         if (!items.isEmpty()) {
-            onTeachingSelected(items.first()->row());
+            onRecordSelected(teachingTable, teachingInputs);
         }
     });
 
     tabWidget->addTab(teachingTab, "授课管理");
+    loadTeachings();
 }
 
 void MainWindow::createEnrollmentTab()
@@ -258,19 +235,25 @@ void MainWindow::createEnrollmentTab()
     QWidget *enrollmentTab = new QWidget();
     QVBoxLayout *layout = new QVBoxLayout(enrollmentTab);
 
+    // 创建表格
     enrollmentTable = new QTableWidget();
     QStringList headers = {"学生学号", "学生姓名", "教师工号", "教师姓名",
                            "课程ID", "课程名称", "学期", "成绩"};
     setupTable(enrollmentTable, headers);
     layout->addWidget(enrollmentTable);
 
+    // 输入区域
     QGridLayout *inputLayout = new QGridLayout();
 
+    QVector<QLineEdit*> enrollmentInputs;
     enrollmentStudentIdEdit = new QLineEdit();
     enrollmentTeacherIdEdit = new QLineEdit();
     enrollmentCourseIdEdit = new QLineEdit();
     enrollmentSemesterEdit = new QLineEdit();
     enrollmentScoreEdit = new QLineEdit();
+
+    enrollmentInputs = {enrollmentStudentIdEdit, enrollmentTeacherIdEdit,
+                        enrollmentCourseIdEdit, enrollmentSemesterEdit, enrollmentScoreEdit};
 
     inputLayout->addWidget(new QLabel("学生学号:"), 0, 0);
     inputLayout->addWidget(enrollmentStudentIdEdit, 0, 1);
@@ -285,6 +268,7 @@ void MainWindow::createEnrollmentTab()
 
     layout->addLayout(inputLayout);
 
+    // 按钮区域
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     QPushButton *addButton = new QPushButton("添加选课");
     QPushButton *updateButton = new QPushButton("修改成绩");
@@ -299,33 +283,35 @@ void MainWindow::createEnrollmentTab()
 
     layout->addLayout(buttonLayout);
 
+    // 连接信号槽
     connect(addButton, &QPushButton::clicked, this, &MainWindow::addEnrollment);
     connect(updateButton, &QPushButton::clicked, this, &MainWindow::updateEnrollmentScore);
     connect(deleteButton, &QPushButton::clicked, this, &MainWindow::deleteEnrollment);
     connect(refreshButton, &QPushButton::clicked, this, &MainWindow::loadEnrollments);
 
-    connect(enrollmentTable, &QTableWidget::itemSelectionChanged, [this]() {
+    connect(enrollmentTable, &QTableWidget::itemSelectionChanged, [this, enrollmentInputs]() {
         auto items = enrollmentTable->selectedItems();
         if (!items.isEmpty()) {
-            onEnrollmentSelected(items.first()->row());
+            onRecordSelected(enrollmentTable, enrollmentInputs);
         }
     });
 
     tabWidget->addTab(enrollmentTab, "选课成绩管理");
+    loadEnrollments();
 }
 
 void MainWindow::createUserManagementTab()
 {
-    if (!checkPermission(m_currentUser.canManageUsers(), "用户管理")) return;
-
     QWidget *userTab = new QWidget();
     QVBoxLayout *layout = new QVBoxLayout(userTab);
 
+    // 创建表格
     userTable = new QTableWidget();
     QStringList headers = {"用户ID", "用户名", "密码", "角色", "关联学生ID", "关联教师ID", "创建时间"};
     setupTable(userTable, headers);
     layout->addWidget(userTable);
 
+    // 输入区域
     QGridLayout *inputLayout = new QGridLayout();
 
     userUsernameEdit = new QLineEdit();
@@ -337,7 +323,6 @@ void MainWindow::createUserManagementTab()
 
     userRoleCombo->addItem("学生", 0);
     userRoleCombo->addItem("教师", 1);
-    userRoleCombo->addItem("管理员", 2);
 
     inputLayout->addWidget(new QLabel("用户名:"), 0, 0);
     inputLayout->addWidget(userUsernameEdit, 0, 1);
@@ -360,6 +345,7 @@ void MainWindow::createUserManagementTab()
 
     layout->addLayout(inputLayout);
 
+    // 按钮区域
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     QPushButton *addButton = new QPushButton("添加用户");
     QPushButton *updateButton = new QPushButton("修改用户");
@@ -373,17 +359,18 @@ void MainWindow::createUserManagementTab()
     buttonLayout->addStretch();
     layout->addLayout(buttonLayout);
 
+    // 连接信号槽
+    connect(addButton, &QPushButton::clicked, this, &MainWindow::addUser);
+    connect(updateButton, &QPushButton::clicked, this, &MainWindow::updateUser);
+    connect(deleteButton, &QPushButton::clicked, this, &MainWindow::deleteUser);
+    connect(refreshButton, &QPushButton::clicked, this, &MainWindow::loadUsers);
+
     connect(userTable, &QTableWidget::itemSelectionChanged, [this]() {
         auto items = userTable->selectedItems();
         if (!items.isEmpty()) {
             onUserSelected(items.first()->row());
         }
     });
-
-    connect(addButton, &QPushButton::clicked, this, &MainWindow::addUser);
-    connect(updateButton, &QPushButton::clicked, this, &MainWindow::updateUser);
-    connect(deleteButton, &QPushButton::clicked, this, &MainWindow::deleteUser);
-    connect(refreshButton, &QPushButton::clicked, this, &MainWindow::loadUsers);
 
     tabWidget->addTab(userTab, "用户管理");
 
@@ -440,238 +427,218 @@ void MainWindow::createSQLTab()
     tabWidget->addTab(sqlTab, "SQL执行");
 }
 
-// 学生管理函数
-void MainWindow::loadStudents()
+// 数据加载函数
+void MainWindow::loadTable(const QString& tableName, QTableWidget* table)
 {
-    loadTableData(studentTable, dataManager.getStudents());
+    auto data = db.executeSelect(tableName);
+    loadTableData(table, data);
 }
 
-void MainWindow::addStudent()
-{
-    if (!checkPermission(m_currentUser.canManageStudents(), "管理学生")) return;
-
-    int id = studentIdEdit->text().toInt();
-    QString name = studentNameEdit->text();
-    int age = studentAgeEdit->text().toInt();
-    int credits = studentCreditsEdit->text().toInt();
-
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入学生姓名");
-        return;
-    }
-
-    if (dataManager.addStudent(id, name, age, credits)) {
-        QMessageBox::information(this, "成功", "添加学生成功");
-        loadStudents();
-        clearInputs({studentIdEdit, studentNameEdit, studentAgeEdit, studentCreditsEdit});
-    } else {
-        QMessageBox::warning(this, "错误", "添加学生失败");
-    }
-}
-
-void MainWindow::updateStudent()
-{
-    if (!checkPermission(m_currentUser.canManageStudents(), "修改学生信息")) return;
-
-    int id = studentIdEdit->text().toInt();
-    QString name = studentNameEdit->text();
-    int age = studentAgeEdit->text().toInt();
-    int credits = studentCreditsEdit->text().toInt();
-
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入学生姓名");
-        return;
-    }
-
-    if (dataManager.updateStudent(id, name, age, credits)) {
-        QMessageBox::information(this, "成功", "修改学生信息成功");
-        loadStudents();
-    } else {
-        QMessageBox::warning(this, "错误", "修改学生信息失败");
-    }
-}
-
-void MainWindow::deleteStudent()
-{
-    if (!checkPermission(m_currentUser.canManageStudents(), "删除学生")) return;
-
-    int id = studentIdEdit->text().toInt();
-
-    if (QMessageBox::question(this, "确认", "确定要删除这个学生吗？") == QMessageBox::Yes) {
-        if (dataManager.deleteStudent(id)) {
-            QMessageBox::information(this, "成功", "删除学生成功");
-            loadStudents();
-            clearInputs({studentIdEdit, studentNameEdit, studentAgeEdit, studentCreditsEdit});
-        } else {
-            QMessageBox::warning(this, "错误", "删除学生失败");
-        }
-    }
-}
-
-void MainWindow::onStudentSelected(int row)
-{
-    studentIdEdit->setText(studentTable->item(row, 0)->text());
-    studentNameEdit->setText(studentTable->item(row, 1)->text());
-    studentAgeEdit->setText(studentTable->item(row, 2)->text());
-    studentCreditsEdit->setText(studentTable->item(row, 3)->text());
-}
-
-// 教师管理函数
-void MainWindow::loadTeachers()
-{
-    loadTableData(teacherTable, dataManager.getTeachers());
-}
-
-void MainWindow::addTeacher()
-{
-    if (!checkPermission(m_currentUser.canManageTeachers(), "添加教师")) return;
-
-    int id = teacherIdEdit->text().toInt();
-    QString name = teacherNameEdit->text();
-    int age = teacherAgeEdit->text().toInt();
-
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入教师姓名");
-        return;
-    }
-
-    if (dataManager.addTeacher(id, name, age)) {
-        QMessageBox::information(this, "成功", "添加教师成功");
-        loadTeachers();
-        clearInputs({teacherIdEdit, teacherNameEdit, teacherAgeEdit});
-    } else {
-        QMessageBox::warning(this, "错误", "添加教师失败");
-    }
-}
-
-void MainWindow::updateTeacher()
-{
-    if (!checkPermission(m_currentUser.canManageTeachers(), "修改教师信息")) return;
-
-    int id = teacherIdEdit->text().toInt();
-    QString name = teacherNameEdit->text();
-    int age = teacherAgeEdit->text().toInt();
-
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入教师姓名");
-        return;
-    }
-
-    if (dataManager.updateTeacher(id, name, age)) {
-        QMessageBox::information(this, "成功", "修改教师信息成功");
-        loadTeachers();
-    } else {
-        QMessageBox::warning(this, "错误", "修改教师信息失败");
-    }
-}
-
-void MainWindow::deleteTeacher()
-{
-    if (!checkPermission(m_currentUser.canManageTeachers(), "删除教师")) return;
-
-    int id = teacherIdEdit->text().toInt();
-
-    if (QMessageBox::question(this, "确认", "确定要删除这个教师吗？") == QMessageBox::Yes) {
-        if (dataManager.deleteTeacher(id)) {
-            QMessageBox::information(this, "成功", "删除教师成功");
-            loadTeachers();
-            clearInputs({teacherIdEdit, teacherNameEdit, teacherAgeEdit});
-        } else {
-            QMessageBox::warning(this, "错误", "删除教师失败");
-        }
-    }
-}
-
-void MainWindow::onTeacherSelected(int row)
-{
-    teacherIdEdit->setText(teacherTable->item(row, 0)->text());
-    teacherNameEdit->setText(teacherTable->item(row, 1)->text());
-    teacherAgeEdit->setText(teacherTable->item(row, 2)->text());
-}
-
-// 课程管理函数
-void MainWindow::loadCourses()
-{
-    loadTableData(courseTable, dataManager.getCourses());
-}
-
-void MainWindow::addCourse()
-{
-    if (!checkPermission(m_currentUser.canManageCourses(), "添加课程")) return;
-
-    int id = courseIdEdit->text().toInt();
-    QString name = courseNameEdit->text();
-    float credit = courseCreditEdit->text().toFloat();
-
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入课程名称");
-        return;
-    }
-
-    if (dataManager.addCourse(id, name, credit)) {
-        QMessageBox::information(this, "成功", "添加课程成功");
-        loadCourses();
-        clearInputs({courseIdEdit, courseNameEdit, courseCreditEdit});
-    } else {
-        QMessageBox::warning(this, "错误", "添加课程失败");
-    }
-}
-
-void MainWindow::updateCourse()
-{
-    if (!checkPermission(m_currentUser.canManageCourses(), "修改课程信息")) return;
-
-    int id = courseIdEdit->text().toInt();
-    QString name = courseNameEdit->text();
-    float credit = courseCreditEdit->text().toFloat();
-
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入课程名称");
-        return;
-    }
-
-    if (dataManager.updateCourse(id, name, credit)) {
-        QMessageBox::information(this, "成功", "修改课程信息成功");
-        loadCourses();
-    } else {
-        QMessageBox::warning(this, "错误", "修改课程信息失败");
-    }
-}
-
-void MainWindow::deleteCourse()
-{
-    if (!checkPermission(m_currentUser.canManageCourses(), "删除课程")) return;
-
-    int id = courseIdEdit->text().toInt();
-
-    if (QMessageBox::question(this, "确认", "确定要删除这个课程吗？") == QMessageBox::Yes) {
-        if (dataManager.deleteCourse(id)) {
-            QMessageBox::information(this, "成功", "删除课程成功");
-            loadCourses();
-            clearInputs({courseIdEdit, courseNameEdit, courseCreditEdit});
-        } else {
-            QMessageBox::warning(this, "错误", "删除课程失败");
-        }
-    }
-}
-
-void MainWindow::onCourseSelected(int row)
-{
-    courseIdEdit->setText(courseTable->item(row, 0)->text());
-    courseNameEdit->setText(courseTable->item(row, 1)->text());
-    courseCreditEdit->setText(courseTable->item(row, 2)->text());
-}
-
-// 授课管理函数
 void MainWindow::loadTeachings()
 {
-    loadTableData(teachingTable, dataManager.getTeachings());
+    auto data = db.getTeachings();
+    loadTableData(teachingTable, data);
 }
 
+void MainWindow::loadEnrollments()
+{
+    auto data = db.getEnrollments();
+    loadTableData(enrollmentTable, data);
+}
+
+void MainWindow::loadUsers()
+{
+    auto data = db.getUsers();
+    userTable->setRowCount(data.size());
+
+    for (int i = 0; i < data.size(); i++) {
+        const auto& user = data[i];
+
+        // 按列顺序设置数据
+        int col = 0;
+
+        // 用户ID (列0)
+        userTable->setItem(i, col++, new QTableWidgetItem(user["user_id"].toString()));
+
+        // 用户名 (列1)
+        userTable->setItem(i, col++, new QTableWidgetItem(user["username"].toString()));
+
+        // 密码 (列2)
+        userTable->setItem(i, col++, new QTableWidgetItem(user["password"].toString()));
+
+        // 角色 (列3) - 转换为文字
+        int roleValue = user["role"].toInt();
+        QString roleStr;
+        switch (roleValue) {
+        case 0: roleStr = "学生"; break;
+        case 1: roleStr = "教师"; break;
+        case 2: roleStr = "管理员"; break;
+        default: roleStr = "未知";
+        }
+        userTable->setItem(i, col++, new QTableWidgetItem(roleStr));
+
+        // 关联学生ID (列4)
+        userTable->setItem(i, col++, new QTableWidgetItem(user["student_id"].toString()));
+
+        // 关联教师ID (列5)
+        userTable->setItem(i, col++, new QTableWidgetItem(user["teacher_id"].toString()));
+
+        // 创建时间 (列6)
+        userTable->setItem(i, col++, new QTableWidgetItem(user["created_at"].toString()));
+    }
+}
+
+// 通用数据操作函数
+void MainWindow::addRecord(const QString& tableName, QTableWidget* table)
+{
+    auto inputs = inputMap[tableName];
+    QVariantMap data;
+
+    // 根据表结构获取字段名
+    if (tableName == "students") {
+        int id = inputs[0]->text().toInt();
+        QString name = inputs[1]->text();
+        int age = inputs[2]->text().toInt();
+        int credits = inputs[3]->text().toInt();
+
+        if (name.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入姓名");
+            return;
+        }
+
+        data["student_id"] = id;
+        data["name"] = name;
+        data["age"] = age;
+        data["credits"] = credits;
+    }
+    else if (tableName == "teachers") {
+        int id = inputs[0]->text().toInt();
+        QString name = inputs[1]->text();
+        int age = inputs[2]->text().toInt();
+
+        if (name.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入姓名");
+            return;
+        }
+
+        data["teacher_id"] = id;
+        data["name"] = name;
+        data["age"] = age;
+    }
+    else if (tableName == "courses") {
+        int id = inputs[0]->text().toInt();
+        QString name = inputs[1]->text();
+        float credit = inputs[2]->text().toFloat();
+
+        if (name.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入课程名称");
+            return;
+        }
+
+        data["course_id"] = id;
+        data["name"] = name;
+        data["credit"] = credit;
+    }
+
+    if (db.executeInsert(tableName, data)) {
+        QMessageBox::information(this, "成功", "添加记录成功");
+        loadTable(tableName, table);
+        clearInputs();
+    } else {
+        QMessageBox::warning(this, "错误", "添加记录失败");
+    }
+}
+
+void MainWindow::updateRecord(const QString& tableName, QTableWidget* table)
+{
+    auto inputs = inputMap[tableName];
+    QVariantMap data;
+    int id = 0;
+
+    if (tableName == "students") {
+        id = inputs[0]->text().toInt();
+        QString name = inputs[1]->text();
+        int age = inputs[2]->text().toInt();
+        int credits = inputs[3]->text().toInt();
+
+        if (name.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入姓名");
+            return;
+        }
+
+        data["name"] = name;
+        data["age"] = age;
+        data["credits"] = credits;
+    }
+    else if (tableName == "teachers") {
+        id = inputs[0]->text().toInt();
+        QString name = inputs[1]->text();
+        int age = inputs[2]->text().toInt();
+
+        if (name.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入姓名");
+            return;
+        }
+
+        data["name"] = name;
+        data["age"] = age;
+    }
+    else if (tableName == "courses") {
+        id = inputs[0]->text().toInt();
+        QString name = inputs[1]->text();
+        float credit = inputs[2]->text().toFloat();
+
+        if (name.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入课程名称");
+            return;
+        }
+
+        data["name"] = name;
+        data["credit"] = credit;
+    }
+
+    if (db.executeUpdate(tableName, id, data)) {
+        QMessageBox::information(this, "成功", "修改记录成功");
+        loadTable(tableName, table);
+    } else {
+        QMessageBox::warning(this, "错误", "修改记录失败");
+    }
+}
+
+void MainWindow::deleteRecord(const QString& tableName, QTableWidget* table)
+{
+    auto inputs = inputMap[tableName];
+    int id = inputs[0]->text().toInt();
+
+    if (id <= 0) {
+        QMessageBox::warning(this, "警告", "请先选择要删除的记录");
+        return;
+    }
+
+    if (QMessageBox::question(this, "确认", "确定要删除这个记录吗？") == QMessageBox::Yes) {
+        if (db.executeDelete(tableName, id)) {
+            QMessageBox::information(this, "成功", "删除记录成功");
+            loadTable(tableName, table);
+            clearInputs();
+        } else {
+            QMessageBox::warning(this, "错误", "删除记录失败");
+        }
+    }
+}
+
+void MainWindow::onRecordSelected(QTableWidget* table, const QVector<QLineEdit*>& inputs)
+{
+    int row = table->currentRow();
+    if (row >= 0 && row < table->rowCount()) {
+        for (int i = 0; i < inputs.size() && i < table->columnCount(); i++) {
+            inputs[i]->setText(table->item(row, i)->text());
+        }
+    }
+}
+
+// 特殊表的操作
 void MainWindow::addTeaching()
 {
-    if (!checkPermission(m_currentUser.canManageTeachings(), "添加授课信息")) return;
-
     int teacherId = teachingTeacherIdEdit->text().toInt();
     int courseId = teachingCourseIdEdit->text().toInt();
     QString semester = teachingSemesterEdit->text();
@@ -683,11 +650,17 @@ void MainWindow::addTeaching()
         return;
     }
 
-    if (dataManager.addTeaching(teacherId, courseId, semester, classTime, classroom)) {
+    QVariantMap data;
+    data["teacher_id"] = teacherId;
+    data["course_id"] = courseId;
+    data["semester"] = semester;
+    data["class_time"] = classTime;
+    data["classroom"] = classroom;
+
+    if (db.executeInsert("teachings", data)) {
         QMessageBox::information(this, "成功", "添加授课信息成功");
         loadTeachings();
-        clearInputs({teachingTeacherIdEdit, teachingCourseIdEdit,
-                     teachingSemesterEdit, teachingClassTimeEdit, teachingClassroomEdit});
+        clearInputs();
     } else {
         QMessageBox::warning(this, "错误", "添加授课信息失败");
     }
@@ -695,37 +668,19 @@ void MainWindow::addTeaching()
 
 void MainWindow::deleteTeaching()
 {
-    if (!checkPermission(m_currentUser.canManageTeachings(), "删除授课信息")) return;
-
     int teacherId = teachingTeacherIdEdit->text().toInt();
     int courseId = teachingCourseIdEdit->text().toInt();
     QString semester = teachingSemesterEdit->text();
 
     if (QMessageBox::question(this, "确认", "确定要删除这个授课信息吗？") == QMessageBox::Yes) {
-        if (dataManager.deleteTeaching(teacherId, courseId, semester)) {
+        if (db.deleteTeaching(teacherId, courseId, semester)) {
             QMessageBox::information(this, "成功", "删除授课信息成功");
             loadTeachings();
-            clearInputs({teachingTeacherIdEdit, teachingCourseIdEdit,
-                         teachingSemesterEdit, teachingClassTimeEdit, teachingClassroomEdit});
+            clearInputs();
         } else {
             QMessageBox::warning(this, "错误", "删除授课信息失败");
         }
     }
-}
-
-void MainWindow::onTeachingSelected(int row)
-{
-    teachingTeacherIdEdit->setText(teachingTable->item(row, 0)->text());
-    teachingCourseIdEdit->setText(teachingTable->item(row, 2)->text());
-    teachingSemesterEdit->setText(teachingTable->item(row, 4)->text());
-    teachingClassTimeEdit->setText(teachingTable->item(row, 5)->text());
-    teachingClassroomEdit->setText(teachingTable->item(row, 6)->text());
-}
-
-// 选课成绩管理函数
-void MainWindow::loadEnrollments()
-{
-    loadTableData(enrollmentTable, dataManager.getEnrollments());
 }
 
 void MainWindow::addEnrollment()
@@ -741,11 +696,17 @@ void MainWindow::addEnrollment()
         return;
     }
 
-    if (dataManager.addEnrollment(studentId, teacherId, courseId, semester, score)) {
+    QVariantMap data;
+    data["student_id"] = studentId;
+    data["teacher_id"] = teacherId;
+    data["course_id"] = courseId;
+    data["semester"] = semester;
+    data["score"] = score;
+
+    if (db.executeInsert("enrollments", data)) {
         QMessageBox::information(this, "成功", "添加选课成功");
         loadEnrollments();
-        clearInputs({enrollmentStudentIdEdit, enrollmentTeacherIdEdit,
-                     enrollmentCourseIdEdit, enrollmentSemesterEdit, enrollmentScoreEdit});
+        clearInputs();
     } else {
         QMessageBox::warning(this, "错误", "添加选课失败");
     }
@@ -759,7 +720,10 @@ void MainWindow::updateEnrollmentScore()
     QString semester = enrollmentSemesterEdit->text();
     float score = enrollmentScoreEdit->text().toFloat();
 
-    if (dataManager.updateEnrollmentScore(studentId, teacherId, courseId, semester, score)) {
+    QVariantMap data;
+    data["score"] = score;
+
+    if (db.updateEnrollment(studentId, teacherId, courseId, semester, data)) {
         QMessageBox::information(this, "成功", "修改成绩成功");
         loadEnrollments();
     } else {
@@ -775,32 +739,17 @@ void MainWindow::deleteEnrollment()
     QString semester = enrollmentSemesterEdit->text();
 
     if (QMessageBox::question(this, "确认", "确定要删除这个选课记录吗？") == QMessageBox::Yes) {
-        if (dataManager.deleteEnrollment(studentId, teacherId, courseId, semester)) {
+        if (db.deleteEnrollment(studentId, teacherId, courseId, semester)) {
             QMessageBox::information(this, "成功", "删除选课记录成功");
             loadEnrollments();
-            clearInputs({enrollmentStudentIdEdit, enrollmentTeacherIdEdit,
-                         enrollmentCourseIdEdit, enrollmentSemesterEdit, enrollmentScoreEdit});
+            clearInputs();
         } else {
             QMessageBox::warning(this, "错误", "删除选课记录失败");
         }
     }
 }
 
-void MainWindow::onEnrollmentSelected(int row)
-{
-    enrollmentStudentIdEdit->setText(enrollmentTable->item(row, 0)->text());
-    enrollmentTeacherIdEdit->setText(enrollmentTable->item(row, 2)->text());
-    enrollmentCourseIdEdit->setText(enrollmentTable->item(row, 4)->text());
-    enrollmentSemesterEdit->setText(enrollmentTable->item(row, 6)->text());
-    enrollmentScoreEdit->setText(enrollmentTable->item(row, 7)->text());
-}
-
 // 用户管理函数
-void MainWindow::loadUsers()
-{
-    loadTableData(userTable, dataManager.getUsers());
-}
-
 void MainWindow::addUser()
 {
     QString username = userUsernameEdit->text().trimmed();
@@ -820,7 +769,82 @@ void MainWindow::addUser()
     }
 
     // 检查用户名是否已存在
-    if (dataManager.checkUsernameExists(username)) {
+    if (db.checkUsernameExists(username)) {
+        QMessageBox::warning(this, "错误", "用户名已存在");
+        return;
+    }
+
+    // 对于学生用户，必须提供学号且学号必须存在
+    if (role == 0) { // 学生
+        if (studentIdStr.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入学生学号");
+            return;
+        }
+
+        // 检查学号是否存在
+        auto students = db.executeSelect("students",
+                                         QString("student_id = %1").arg(studentIdStr.toInt()));
+        if (students.isEmpty()) {
+            QMessageBox::warning(this, "错误", "学生学号不存在");
+            return;
+        }
+    }
+
+    // 对于教师用户，必须提供工号且工号必须存在
+    if (role == 1) { // 教师
+        if (teacherIdStr.isEmpty()) {
+            QMessageBox::warning(this, "警告", "请输入教师工号");
+            return;
+        }
+
+        // 检查工号是否存在
+        auto teachers = db.executeSelect("teachers",
+                                         QString("teacher_id = %1").arg(teacherIdStr.toInt()));
+        if (teachers.isEmpty()) {
+            QMessageBox::warning(this, "错误", "教师工号不存在");
+            return;
+        }
+    }
+
+    QVariant studentId = studentIdStr.isEmpty() ? QVariant() : studentIdStr.toInt();
+    QVariant teacherId = teacherIdStr.isEmpty() ? QVariant() : teacherIdStr.toInt();
+
+    if (db.addUser(username, password, role, studentId, teacherId)) {
+        QMessageBox::information(this, "成功",
+                                 role == 0 ? "添加学生用户成功" :
+                                     role == 1 ? "添加教师用户成功" : "添加管理员用户成功");
+        loadUsers();
+        clearUserInputs();
+    } else {
+        QMessageBox::warning(this, "错误", "添加用户失败");
+    }
+}
+
+void MainWindow::updateUser()
+{
+    auto items = userTable->selectedItems();
+    if (items.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请先选择要修改的用户");
+        return;
+    }
+
+    int row = items.first()->row();
+    int userId = userTable->item(row, 0)->text().toInt();
+    QString oldUsername = userTable->item(row, 1)->text();
+
+    QString newUsername = userUsernameEdit->text().trimmed();
+    QString newPassword = userPasswordEdit->text();
+    int newRole = userRoleCombo->currentData().toInt();
+    QString studentIdStr = userStudentIdEdit->text().trimmed();
+    QString teacherIdStr = userTeacherIdEdit->text().trimmed();
+
+    if (newUsername.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请输入用户名");
+        return;
+    }
+
+    // 如果用户名有变化，检查新用户名是否已存在
+    if (newUsername != oldUsername && db.checkUsernameExists(newUsername, userId)) {
         QMessageBox::warning(this, "错误", "用户名已存在");
         return;
     }
@@ -828,12 +852,12 @@ void MainWindow::addUser()
     QVariant studentId = studentIdStr.isEmpty() ? QVariant() : studentIdStr.toInt();
     QVariant teacherId = teacherIdStr.isEmpty() ? QVariant() : teacherIdStr.toInt();
 
-    if (dataManager.addUser(username, password, role, studentId, teacherId)) {
-        QMessageBox::information(this, "成功", "添加用户成功");
+    if (db.updateUser(userId, newUsername, newPassword, newRole, studentId, teacherId)) {
+        QMessageBox::information(this, "成功", "修改用户成功");
         loadUsers();
         clearUserInputs();
     } else {
-        QMessageBox::warning(this, "错误", "添加用户失败");
+        QMessageBox::warning(this, "错误", "修改用户失败");
     }
 }
 
@@ -863,54 +887,13 @@ void MainWindow::deleteUser()
 
     if (QMessageBox::question(this, "确认",
                               QString("确定要删除用户 '%1' 吗？").arg(username)) == QMessageBox::Yes) {
-        if (dataManager.deleteUser(userId)) {
+        if (db.deleteUser(userId)) {
             QMessageBox::information(this, "成功", "删除用户成功");
             loadUsers();
             clearUserInputs();
         } else {
             QMessageBox::warning(this, "错误", "删除用户失败");
         }
-    }
-}
-
-void MainWindow::updateUser()
-{
-    auto items = userTable->selectedItems();
-    if (items.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请先选择要修改的用户");
-        return;
-    }
-
-    int row = items.first()->row();
-    int userId = userTable->item(row, 0)->text().toInt();
-    QString oldUsername = userTable->item(row, 1)->text();
-
-    QString newUsername = userUsernameEdit->text().trimmed();
-    QString newPassword = userPasswordEdit->text();
-    int newRole = userRoleCombo->currentData().toInt();
-    QString studentIdStr = userStudentIdEdit->text().trimmed();
-    QString teacherIdStr = userTeacherIdEdit->text().trimmed();
-
-    if (newUsername.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入用户名");
-        return;
-    }
-
-    // 如果用户名有变化，检查新用户名是否已存在
-    if (newUsername != oldUsername && dataManager.checkUsernameExists(newUsername, userId)) {
-        QMessageBox::warning(this, "错误", "用户名已存在");
-        return;
-    }
-
-    QVariant studentId = studentIdStr.isEmpty() ? QVariant() : studentIdStr.toInt();
-    QVariant teacherId = teacherIdStr.isEmpty() ? QVariant() : teacherIdStr.toInt();
-
-    if (dataManager.updateUser(userId, newUsername, newPassword, newRole, studentId, teacherId)) {
-        QMessageBox::information(this, "成功", "修改用户成功");
-        loadUsers();
-        clearUserInputs();
-    } else {
-        QMessageBox::warning(this, "错误", "修改用户失败");
     }
 }
 
@@ -944,23 +927,20 @@ void MainWindow::clearUserInputs()
 // SQL执行函数
 void MainWindow::onExecuteSQL()
 {
-    if (!checkPermission(m_currentUser.canExecuteSQL(), "执行SQL语句")) return;
-
     QString sql = sqlInputEdit->toPlainText().trimmed();
     if (sql.isEmpty()) {
         QMessageBox::warning(this, "输入为空", "请输入SQL语句");
         return;
     }
 
-    QString result = dataManager.executeSQL(sql);
+    QString result = db.executeSQL(sql);
     sqlOutputEdit->setPlainText(result);
 
     // 刷新所有表格数据
-    loadStudents();
-    loadTeachers();
-    loadCourses();
-    loadTeachings();
-    loadEnrollments();
+    for (auto it = tableMap.begin(); it != tableMap.end(); ++it) {
+        loadTable(it.key(), it.value());
+    }
+
     if (m_currentUser.canManageUsers()) {
         loadUsers();
     }
@@ -985,20 +965,31 @@ void MainWindow::onClearSQL()
 }
 
 // 辅助函数
-void MainWindow::clearInputs(const QList<QLineEdit*>& inputs)
+void MainWindow::clearInputs()
 {
-    for (auto edit : inputs) {
-        if (edit) edit->clear();
-    }
-}
-
-void MainWindow::loadTableData(QTableWidget* table, const QList<QList<QVariant>>& data)
-{
-    table->setRowCount(data.size());
-
-    for (int i = 0; i < data.size(); i++) {
-        for (int j = 0; j < data[i].size(); j++) {
-            table->setItem(i, j, new QTableWidgetItem(data[i][j].toString()));
+    for (auto& inputs : inputMap) {
+        for (auto edit : inputs) {
+            if (edit) edit->clear();
         }
     }
+
+    if (teachingTeacherIdEdit) teachingTeacherIdEdit->clear();
+    if (teachingCourseIdEdit) teachingCourseIdEdit->clear();
+    if (teachingSemesterEdit) teachingSemesterEdit->clear();
+    if (teachingClassTimeEdit) teachingClassTimeEdit->clear();
+    if (teachingClassroomEdit) teachingClassroomEdit->clear();
+
+    if (enrollmentStudentIdEdit) enrollmentStudentIdEdit->clear();
+    if (enrollmentTeacherIdEdit) enrollmentTeacherIdEdit->clear();
+    if (enrollmentCourseIdEdit) enrollmentCourseIdEdit->clear();
+    if (enrollmentSemesterEdit) enrollmentSemesterEdit->clear();
+    if (enrollmentScoreEdit) enrollmentScoreEdit->clear();
+}
+
+bool MainWindow::getPermissionForTable(const QString& tableName)
+{
+    if (tableName == "students") return m_currentUser.canManageStudents();
+    if (tableName == "teachers") return m_currentUser.canManageTeachers();
+    if (tableName == "courses") return m_currentUser.canManageCourses();
+    return false;
 }
