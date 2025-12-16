@@ -72,30 +72,30 @@ void Database::createTables()
         "name TEXT NOT NULL, "
         "age INTEGER)",
 
+        // 课程表添加 semester 字段
         "CREATE TABLE IF NOT EXISTS courses ("
         "course_id INTEGER PRIMARY KEY, "
         "name TEXT NOT NULL, "
-        "credit REAL)",
+        "credit REAL, "
+        "semester TEXT)",  // 新增 semester 字段
 
+        // 授课表移除 semester 字段
         "CREATE TABLE IF NOT EXISTS teachings ("
         "teacher_id INTEGER, "
         "course_id INTEGER, "
-        "semester TEXT, "
         "class_time TEXT, "
         "classroom TEXT, "
-        "PRIMARY KEY (teacher_id, course_id, semester), "
+        "PRIMARY KEY (teacher_id, course_id), "  // 移除 semester 从主键
         "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
         "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)",
 
+        // 选课表移除 semester 字段
         "CREATE TABLE IF NOT EXISTS enrollments ("
         "student_id INTEGER, "
-        "teacher_id INTEGER, "
         "course_id INTEGER, "
-        "semester TEXT, "
         "score REAL DEFAULT 0, "
-        "PRIMARY KEY (student_id, teacher_id, course_id, semester), "
+        "PRIMARY KEY (student_id, course_id), "  // 移除 semester 从主键
         "FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE, "
-        "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
         "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)"
     };
 
@@ -129,6 +129,54 @@ void Database::createTables()
         "        WHEN (SELECT COUNT(*) FROM users WHERE role = 2 AND user_id != OLD.user_id) > 0 "
         "        THEN RAISE(ABORT, '只能有一个管理员') "
         "    END; "
+        "END;",
+
+        // 插入学生时自动创建用户账户
+        "CREATE TRIGGER IF NOT EXISTS create_student_user_trigger "
+        "AFTER INSERT ON students "
+        "BEGIN "
+        "    INSERT OR IGNORE INTO users (username, password, role, student_id, teacher_id, created_at) "
+        "    VALUES (NEW.student_id, '123456', 0, NEW.student_id, NULL, CURRENT_TIMESTAMP); "
+        "END;",
+
+        // 插入教师时自动创建用户账户
+        "CREATE TRIGGER IF NOT EXISTS create_teacher_user_trigger "
+        "AFTER INSERT ON teachers "
+        "BEGIN "
+        "    INSERT OR IGNORE INTO users (username, password, role, student_id, teacher_id, created_at) "
+        "    VALUES (NEW.teacher_id, '123456', 1, NULL, NEW.teacher_id, CURRENT_TIMESTAMP); "
+        "END;",
+
+        // 更新学生学号时同步更新用户名
+        "CREATE TRIGGER IF NOT EXISTS update_student_username_trigger "
+        "AFTER UPDATE OF student_id ON students "
+        "WHEN OLD.student_id != NEW.student_id "
+        "BEGIN "
+        "    UPDATE users SET username = NEW.student_id "
+        "    WHERE student_id = OLD.student_id AND role = 0; "
+        "END;",
+
+        // 更新教师工号时同步更新用户名
+        "CREATE TRIGGER IF NOT EXISTS update_teacher_username_trigger "
+        "AFTER UPDATE OF teacher_id ON teachers "
+        "WHEN OLD.teacher_id != NEW.teacher_id "
+        "BEGIN "
+        "    UPDATE users SET username = NEW.teacher_id "
+        "    WHERE teacher_id = OLD.teacher_id AND role = 1; "
+        "END;",
+
+        // 删除学生时自动删除用户账户
+        "CREATE TRIGGER IF NOT EXISTS delete_student_user_trigger "
+        "AFTER DELETE ON students "
+        "BEGIN "
+        "    DELETE FROM users WHERE student_id = OLD.student_id AND role = 0; "
+        "END;",
+
+        // 删除教师时自动删除用户账户
+        "CREATE TRIGGER IF NOT EXISTS delete_teacher_user_trigger "
+        "AFTER DELETE ON teachers "
+        "BEGIN "
+        "    DELETE FROM users WHERE teacher_id = OLD.teacher_id AND role = 1; "
         "END;"
     };
 
@@ -180,6 +228,7 @@ bool Database::executeInsert(const QString& table, const QVariantMap& data)
         query.bindValue(":" + it.key(), it.value());
     }
 
+    // 直接返回执行结果，触发器会自动处理用户创建
     return query.exec();
 }
 
@@ -232,9 +281,37 @@ QList<QMap<QString, QVariant>> Database::executeSelect(const QString& table,
 {
     QList<QMap<QString, QVariant>> result;
 
-    QString sql = QString("SELECT * FROM %1").arg(table);
+    QString fields;
+    QString orderBy;
+
+    if (table == "students") {
+        fields = "student_id, name, age, credits";
+        orderBy = "student_id";
+    } else if (table == "teachers") {
+        fields = "teacher_id, name, age";
+        orderBy = "teacher_id";
+    } else if (table == "courses") {
+        fields = "course_id, name, credit, semester";  // 添加 semester 字段
+        orderBy = "course_id";
+    } else if (table == "users") {
+        fields = "user_id, username, password, role, "
+                 "COALESCE(student_id, '') as student_id, "
+                 "COALESCE(teacher_id, '') as teacher_id, "
+                 "created_at";
+        orderBy = "user_id";
+    } else {
+        fields = "*";
+        orderBy = "";
+    }
+
+    QString sql = QString("SELECT %1 FROM %2").arg(fields).arg(table);
     if (!condition.isEmpty()) {
         sql += " WHERE " + condition;
+    }
+
+    // 添加排序，确保数据顺序一致
+    if (!orderBy.isEmpty()) {
+        sql += " ORDER BY " + orderBy;
     }
 
     QSqlQuery query(sql);
@@ -256,13 +333,20 @@ QList<QMap<QString, QVariant>> Database::getTeachings()
 {
     QList<QMap<QString, QVariant>> result;
 
-    QString sql = "SELECT t.teacher_id, te.name as teacher_name, "
-                  "t.course_id, c.name as course_name, "
-                  "t.semester, t.class_time, t.classroom "
+    // 表头顺序：{"教师工号", "教师姓名", "课程ID", "课程名称", "学期", "上课时间", "教室"}
+    QString sql = "SELECT "
+                  "t.teacher_id, "           // 教师工号 - 列0
+                  "te.name as teacher_name, " // 教师姓名 - 列1
+                  "t.course_id, "            // 课程ID - 列2
+                  "c.name as course_name, "  // 课程名称 - 列3
+                  "c.semester, "             // 学期 - 列4（现在从 courses 表获取）
+                  "t.class_time, "           // 上课时间 - 列5
+                  "t.classroom "             // 教室 - 列6
                   "FROM teachings t "
                   "LEFT JOIN teachers te ON t.teacher_id = te.teacher_id "
                   "LEFT JOIN courses c ON t.course_id = c.course_id "
-                  "ORDER BY t.semester, t.teacher_id";
+                  // 排序规则：先按照学期逆序，然后按照课程ID顺序，再按照教师ID顺序
+                  "ORDER BY c.semester DESC, t.course_id ASC, t.teacher_id ASC";
 
     QSqlQuery query(sql);
 
@@ -282,15 +366,19 @@ QList<QMap<QString, QVariant>> Database::getEnrollments()
 {
     QList<QMap<QString, QVariant>> result;
 
-    QString sql = "SELECT e.student_id, s.name as student_name, "
-                  "e.teacher_id, t.name as teacher_name, "
-                  "e.course_id, c.name as course_name, "
-                  "e.semester, e.score "
+    // 表头顺序：{"学生学号", "学生姓名", "课程ID", "课程名称", "学期", "成绩"}
+    QString sql = "SELECT "
+                  "e.student_id, "           // 学生学号 - 列0
+                  "s.name as student_name, " // 学生姓名 - 列1
+                  "e.course_id, "            // 课程ID - 列2
+                  "c.name as course_name, "  // 课程名称 - 列3
+                  "c.semester, "             // 学期 - 列4（现在从 courses 表获取）
+                  "e.score "                 // 成绩 - 列5
                   "FROM enrollments e "
                   "LEFT JOIN students s ON e.student_id = s.student_id "
-                  "LEFT JOIN teachers t ON e.teacher_id = t.teacher_id "
                   "LEFT JOIN courses c ON e.course_id = c.course_id "
-                  "ORDER BY e.semester, e.student_id";
+                  // 排序规则：先按照学期逆序，然后按照课程ID顺序，再按照学生ID顺序
+                  "ORDER BY c.semester DESC, e.course_id ASC, e.student_id ASC";
 
     QSqlQuery query(sql);
 
@@ -659,8 +747,7 @@ QString Database::executeSQL(const QString& sql)
 }
 
 // 对于复合主键的表，提供专门的函数
-bool Database::updateTeaching(int teacherId, int courseId, const QString& semester,
-                              const QVariantMap& data)
+bool Database::updateTeaching(int teacherId, int courseId, const QVariantMap& data)
 {
     if (data.isEmpty()) return false;
 
@@ -670,14 +757,13 @@ bool Database::updateTeaching(int teacherId, int courseId, const QString& semest
     }
 
     QString sql = QString("UPDATE teachings SET %1 WHERE teacher_id = :teacher_id "
-                          "AND course_id = :course_id AND semester = :semester")
+                          "AND course_id = :course_id")
                       .arg(updates.join(", "));
 
     QSqlQuery query;
     query.prepare(sql);
     query.bindValue(":teacher_id", teacherId);
     query.bindValue(":course_id", courseId);
-    query.bindValue(":semester", semester);
 
     for (auto it = data.begin(); it != data.end(); ++it) {
         query.bindValue(":" + it.key(), it.value());
@@ -686,23 +772,21 @@ bool Database::updateTeaching(int teacherId, int courseId, const QString& semest
     return query.exec();
 }
 
-bool Database::deleteTeaching(int teacherId, int courseId, const QString& semester)
+
+bool Database::deleteTeaching(int teacherId, int courseId)
 {
     QString sql = "DELETE FROM teachings WHERE teacher_id = :teacher_id "
-                  "AND course_id = :course_id AND semester = :semester";
+                  "AND course_id = :course_id";
 
     QSqlQuery query;
     query.prepare(sql);
     query.bindValue(":teacher_id", teacherId);
     query.bindValue(":course_id", courseId);
-    query.bindValue(":semester", semester);
 
     return query.exec();
 }
 
-// 类似地为 enrollments 表创建函数
-bool Database::updateEnrollment(int studentId, int teacherId, int courseId,
-                                const QString& semester, const QVariantMap& data)
+bool Database::updateEnrollment(int studentId, int courseId, const QVariantMap& data)
 {
     if (data.isEmpty()) return false;
 
@@ -712,16 +796,13 @@ bool Database::updateEnrollment(int studentId, int teacherId, int courseId,
     }
 
     QString sql = QString("UPDATE enrollments SET %1 WHERE student_id = :student_id "
-                          "AND teacher_id = :teacher_id AND course_id = :course_id "
-                          "AND semester = :semester")
+                          "AND course_id = :course_id")
                       .arg(updates.join(", "));
 
     QSqlQuery query;
     query.prepare(sql);
     query.bindValue(":student_id", studentId);
-    query.bindValue(":teacher_id", teacherId);
     query.bindValue(":course_id", courseId);
-    query.bindValue(":semester", semester);
 
     for (auto it = data.begin(); it != data.end(); ++it) {
         query.bindValue(":" + it.key(), it.value());
@@ -730,39 +811,15 @@ bool Database::updateEnrollment(int studentId, int teacherId, int courseId,
     return query.exec();
 }
 
-bool Database::deleteEnrollment(int studentId, int teacherId, int courseId,
-                                const QString& semester)
+bool Database::deleteEnrollment(int studentId, int courseId)
 {
     QString sql = "DELETE FROM enrollments WHERE student_id = :student_id "
-                  "AND teacher_id = :teacher_id AND course_id = :course_id "
-                  "AND semester = :semester";
+                  "AND course_id = :course_id";
 
     QSqlQuery query;
     query.prepare(sql);
     query.bindValue(":student_id", studentId);
-    query.bindValue(":teacher_id", teacherId);
     query.bindValue(":course_id", courseId);
-    query.bindValue(":semester", semester);
 
     return query.exec();
-}
-
-bool Database::hasAdmin() const
-{
-    QSqlQuery query("SELECT COUNT(*) FROM users WHERE role = 2");
-    if (query.exec() && query.next()) {
-        return query.value(0).toInt() > 0;
-    }
-    return false;
-}
-
-bool Database::isCurrentUserAdmin(int userId)
-{
-    QSqlQuery query;
-    query.prepare("SELECT role FROM users WHERE user_id = ?");
-    query.addBindValue(userId);
-    if (query.exec() && query.next()) {
-        return query.value(0).toInt() == 2;
-    }
-    return false;
 }

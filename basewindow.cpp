@@ -115,9 +115,17 @@ void BaseWindow::loadTableData(QTableWidget* table, const QList<QMap<QString, QV
     table->setRowCount(data.size());
 
     for (int i = 0; i < data.size(); i++) {
-        int col = 0;
-        for (const auto& value : data[i]) {
-            table->setItem(i, col++, new QTableWidgetItem(value.toString()));
+        const auto& rowData = data[i];
+
+        // 获取当前行的列值列表（按数据库查询的字段顺序）
+        QList<QVariant> values;
+        for (auto it = rowData.begin(); it != rowData.end(); ++it) {
+            values.append(it.value());
+        }
+
+        // 按照列顺序填充数据
+        for (int col = 0; col < qMin(values.size(), table->columnCount()); col++) {
+            table->setItem(i, col, new QTableWidgetItem(values[col].toString()));
         }
     }
 }

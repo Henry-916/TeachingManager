@@ -38,6 +38,7 @@ private:
     bool getPermissionForTable(const QString& tableName);
 
     // 数据加载
+    void loadTableDataForTab(QTableWidget* table, const QString& tableName,const QList<QMap<QString, QVariant>>& data);
     void loadTable(const QString& tableName, QTableWidget* table);
     void loadTeachings();
     void loadEnrollments();

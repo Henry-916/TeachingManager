@@ -1,3 +1,4 @@
+// database.h 清理后
 #ifndef DATABASE_H
 #define DATABASE_H
 
@@ -13,14 +14,11 @@ class Database : public QObject
     Q_OBJECT
 
 public:
-    bool hasAdmin() const;
-    bool isCurrentUserAdmin(int userId);
-
     static Database& getInstance();
     bool connect();
     bool isConnected() const;
 
-    // 通用操作（针对单主键表）
+    // 通用操作
     bool executeInsert(const QString& table, const QVariantMap& data);
     bool executeUpdate(const QString& table, int id, const QVariantMap& data);
     bool executeDelete(const QString& table, int id);
@@ -28,13 +26,10 @@ public:
                                                  const QString& condition = "");
 
     // 复合主键表的特殊操作
-    bool updateTeaching(int teacherId, int courseId, const QString& semester,
-                        const QVariantMap& data);
-    bool deleteTeaching(int teacherId, int courseId, const QString& semester);
-    bool updateEnrollment(int studentId, int teacherId, int courseId,
-                          const QString& semester, const QVariantMap& data);
-    bool deleteEnrollment(int studentId, int teacherId, int courseId,
-                          const QString& semester);
+    bool updateTeaching(int teacherId, int courseId, const QVariantMap& data);
+    bool deleteTeaching(int teacherId, int courseId);
+    bool updateEnrollment(int studentId, int courseId, const QVariantMap& data);
+    bool deleteEnrollment(int studentId, int courseId);
 
     // 特殊查询
     QList<QMap<QString, QVariant>> getTeachings();

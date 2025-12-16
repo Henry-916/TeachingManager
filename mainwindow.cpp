@@ -1,5 +1,4 @@
 #include "mainwindow.h"
-#include "utils.h"
 #include <QApplication>
 #include <QMessageBox>
 #include <QCheckBox>
@@ -56,10 +55,11 @@ void MainWindow::setupUI()
 
     // 课程管理标签页
     createManagementTab("课程管理", "courses",
-                        {"课程ID", "课程名称", "学分"},
+                        {"课程ID", "课程名称", "学分", "学期"},
                         {{"course_id", "课程ID:"},
                          {"name", "课程名称:"},
-                         {"credit", "学分:"}});
+                         {"credit", "学分:"},
+                         {"semester", "学期:"}});
 
     // 授课管理标签页
     createTeachingTab();
@@ -173,31 +173,32 @@ void MainWindow::createTeachingTab()
     teachingTable = new QTableWidget();
     QStringList headers = {"教师工号", "教师姓名", "课程ID", "课程名称", "学期", "上课时间", "教室"};
     setupTable(teachingTable, headers);
+
+    // 关闭默认的交替行颜色
+    teachingTable->setAlternatingRowColors(false);
+
     layout->addWidget(teachingTable);
 
-    // 输入区域
+    // 输入区域 - 不需要学期输入框（因为学期在课程表中）
     QGridLayout *inputLayout = new QGridLayout();
 
     QVector<QLineEdit*> teachingInputs;
     teachingTeacherIdEdit = new QLineEdit();
     teachingCourseIdEdit = new QLineEdit();
-    teachingSemesterEdit = new QLineEdit();
     teachingClassTimeEdit = new QLineEdit();
     teachingClassroomEdit = new QLineEdit();
 
     teachingInputs = {teachingTeacherIdEdit, teachingCourseIdEdit,
-                      teachingSemesterEdit, teachingClassTimeEdit, teachingClassroomEdit};
+                      teachingClassTimeEdit, teachingClassroomEdit};
 
     inputLayout->addWidget(new QLabel("教师工号:"), 0, 0);
     inputLayout->addWidget(teachingTeacherIdEdit, 0, 1);
     inputLayout->addWidget(new QLabel("课程ID:"), 0, 2);
     inputLayout->addWidget(teachingCourseIdEdit, 0, 3);
-    inputLayout->addWidget(new QLabel("学期:"), 1, 0);
-    inputLayout->addWidget(teachingSemesterEdit, 1, 1);
-    inputLayout->addWidget(new QLabel("上课时间:"), 1, 2);
-    inputLayout->addWidget(teachingClassTimeEdit, 1, 3);
-    inputLayout->addWidget(new QLabel("教室:"), 2, 0);
-    inputLayout->addWidget(teachingClassroomEdit, 2, 1);
+    inputLayout->addWidget(new QLabel("上课时间:"), 1, 0);
+    inputLayout->addWidget(teachingClassTimeEdit, 1, 1);
+    inputLayout->addWidget(new QLabel("教室:"), 1, 2);
+    inputLayout->addWidget(teachingClassroomEdit, 1, 3);
 
     layout->addLayout(inputLayout);
 
@@ -219,10 +220,18 @@ void MainWindow::createTeachingTab()
     connect(deleteButton, &QPushButton::clicked, this, &MainWindow::deleteTeaching);
     connect(refreshButton, &QPushButton::clicked, this, &MainWindow::loadTeachings);
 
+    // 行选择处理 - 需要根据新的列顺序调整
     connect(teachingTable, &QTableWidget::itemSelectionChanged, [this, teachingInputs]() {
         auto items = teachingTable->selectedItems();
         if (!items.isEmpty()) {
-            onRecordSelected(teachingTable, teachingInputs);
+            int row = items.first()->row();
+            // 现在的列顺序：
+            // 0-教师工号, 1-教师姓名, 2-课程ID, 3-课程名称, 4-学期, 5-上课时间, 6-教室
+            // 我们只需要填充：教师工号(0)、课程ID(2)、上课时间(5)、教室(6)
+            if (teachingInputs[0]) teachingInputs[0]->setText(teachingTable->item(row, 0)->text());
+            if (teachingInputs[1]) teachingInputs[1]->setText(teachingTable->item(row, 2)->text());
+            if (teachingInputs[2]) teachingInputs[2]->setText(teachingTable->item(row, 5)->text());
+            if (teachingInputs[3]) teachingInputs[3]->setText(teachingTable->item(row, 6)->text());
         }
     });
 
@@ -237,34 +246,30 @@ void MainWindow::createEnrollmentTab()
 
     // 创建表格
     enrollmentTable = new QTableWidget();
-    QStringList headers = {"学生学号", "学生姓名", "教师工号", "教师姓名",
-                           "课程ID", "课程名称", "学期", "成绩"};
+    QStringList headers = {"学生学号", "学生姓名", "课程ID", "课程名称", "学期", "成绩"};
     setupTable(enrollmentTable, headers);
+
+    // 关闭默认的交替行颜色
+    enrollmentTable->setAlternatingRowColors(false);
+
     layout->addWidget(enrollmentTable);
 
-    // 输入区域
+    // 输入区域 - 移除学期输入框
     QGridLayout *inputLayout = new QGridLayout();
 
     QVector<QLineEdit*> enrollmentInputs;
     enrollmentStudentIdEdit = new QLineEdit();
-    enrollmentTeacherIdEdit = new QLineEdit();
     enrollmentCourseIdEdit = new QLineEdit();
-    enrollmentSemesterEdit = new QLineEdit();
     enrollmentScoreEdit = new QLineEdit();
 
-    enrollmentInputs = {enrollmentStudentIdEdit, enrollmentTeacherIdEdit,
-                        enrollmentCourseIdEdit, enrollmentSemesterEdit, enrollmentScoreEdit};
+    enrollmentInputs = {enrollmentStudentIdEdit, enrollmentCourseIdEdit, enrollmentScoreEdit};
 
     inputLayout->addWidget(new QLabel("学生学号:"), 0, 0);
     inputLayout->addWidget(enrollmentStudentIdEdit, 0, 1);
-    inputLayout->addWidget(new QLabel("教师工号:"), 0, 2);
-    inputLayout->addWidget(enrollmentTeacherIdEdit, 0, 3);
-    inputLayout->addWidget(new QLabel("课程ID:"), 1, 0);
-    inputLayout->addWidget(enrollmentCourseIdEdit, 1, 1);
-    inputLayout->addWidget(new QLabel("学期:"), 1, 2);
-    inputLayout->addWidget(enrollmentSemesterEdit, 1, 3);
-    inputLayout->addWidget(new QLabel("成绩:"), 2, 0);
-    inputLayout->addWidget(enrollmentScoreEdit, 2, 1);
+    inputLayout->addWidget(new QLabel("课程ID:"), 0, 2);
+    inputLayout->addWidget(enrollmentCourseIdEdit, 0, 3);
+    inputLayout->addWidget(new QLabel("成绩:"), 1, 0);
+    inputLayout->addWidget(enrollmentScoreEdit, 1, 1);
 
     layout->addLayout(inputLayout);
 
@@ -289,10 +294,19 @@ void MainWindow::createEnrollmentTab()
     connect(deleteButton, &QPushButton::clicked, this, &MainWindow::deleteEnrollment);
     connect(refreshButton, &QPushButton::clicked, this, &MainWindow::loadEnrollments);
 
-    connect(enrollmentTable, &QTableWidget::itemSelectionChanged, [this, enrollmentInputs]() {
+    // 行选择处理
+    connect(enrollmentTable, &QTableWidget::itemSelectionChanged, [this]() {
         auto items = enrollmentTable->selectedItems();
         if (!items.isEmpty()) {
-            onRecordSelected(enrollmentTable, enrollmentInputs);
+            int row = items.first()->row();
+            // 现在需要根据实际的表头顺序来填充输入框
+            // 列0: 学生学号, 列2: 课程ID, 列5: 成绩
+            if (enrollmentStudentIdEdit)
+                enrollmentStudentIdEdit->setText(enrollmentTable->item(row, 0)->text());
+            if (enrollmentCourseIdEdit)
+                enrollmentCourseIdEdit->setText(enrollmentTable->item(row, 2)->text());
+            if (enrollmentScoreEdit)
+                enrollmentScoreEdit->setText(enrollmentTable->item(row, 5)->text());
         }
     });
 
@@ -428,22 +442,215 @@ void MainWindow::createSQLTab()
 }
 
 // 数据加载函数
+void MainWindow::loadTableDataForTab(QTableWidget* table, const QString& tableName,
+                                     const QList<QMap<QString, QVariant>>& data)
+{
+    table->setRowCount(data.size());
+
+    // 定义字段映射关系
+    QMap<QString, QMap<QString, QString>> fieldMappings;
+
+    // 学生表映射
+    QMap<QString, QString> studentMap;
+    studentMap["student_id"] = "student_id";
+    studentMap["name"] = "name";
+    studentMap["age"] = "age";
+    studentMap["credits"] = "credits";
+    fieldMappings["students"] = studentMap;
+
+    // 教师表映射
+    QMap<QString, QString> teacherMap;
+    teacherMap["teacher_id"] = "teacher_id";
+    teacherMap["name"] = "name";
+    teacherMap["age"] = "age";
+    fieldMappings["teachers"] = teacherMap;
+
+    // 课程表映射 - 添加 semester 字段
+    QMap<QString, QString> courseMap;
+    courseMap["course_id"] = "course_id";
+    courseMap["name"] = "name";
+    courseMap["credit"] = "credit";
+    courseMap["semester"] = "semester";  // 添加学期字段
+    fieldMappings["courses"] = courseMap;
+
+    // 获取当前表的字段映射
+    QMap<QString, QString> mapping = fieldMappings.value(tableName);
+
+    for (int i = 0; i < data.size(); i++) {
+        const auto& rowData = data[i];
+
+        // 按照表头顺序填充
+        for (int col = 0; col < table->columnCount(); col++) {
+            QString headerText = table->horizontalHeaderItem(col)->text();
+
+            // 根据表头文本找到对应的数据库字段名
+            QString fieldName;
+            if (tableName == "students") {
+                if (headerText == "学号") fieldName = "student_id";
+                else if (headerText == "姓名") fieldName = "name";
+                else if (headerText == "年龄") fieldName = "age";
+                else if (headerText == "学分") fieldName = "credits";
+            } else if (tableName == "teachers") {
+                if (headerText == "工号") fieldName = "teacher_id";
+                else if (headerText == "姓名") fieldName = "name";
+                else if (headerText == "年龄") fieldName = "age";
+            } else if (tableName == "courses") {
+                if (headerText == "课程ID") fieldName = "course_id";
+                else if (headerText == "课程名称") fieldName = "name";
+                else if (headerText == "学分") fieldName = "credit";
+                else if (headerText == "学期") fieldName = "semester";  // 添加学期映射
+            }
+
+            if (!fieldName.isEmpty() && rowData.contains(fieldName)) {
+                table->setItem(i, col, new QTableWidgetItem(rowData[fieldName].toString()));
+            } else {
+                // 如果找不到对应字段，使用默认值
+                table->setItem(i, col, new QTableWidgetItem(""));
+            }
+        }
+    }
+}
+
 void MainWindow::loadTable(const QString& tableName, QTableWidget* table)
 {
     auto data = db.executeSelect(tableName);
-    loadTableData(table, data);
+
+    // 使用改进的加载函数
+    if (tableName == "students" || tableName == "teachers" || tableName == "courses") {
+        loadTableDataForTab(table, tableName, data);
+    } else {
+        // 其他表使用基类的加载函数
+        loadTableData(table, data);
+    }
 }
 
 void MainWindow::loadTeachings()
 {
     auto data = db.getTeachings();
-    loadTableData(teachingTable, data);
+    teachingTable->setRowCount(data.size());
+
+    // 获取系统主题的交替行颜色
+    QPalette palette = teachingTable->palette();
+    QColor color1 = palette.color(QPalette::Base);
+    QColor color2 = palette.color(QPalette::AlternateBase);
+
+    QString lastCourseId = "";
+    bool useColor1 = true;
+
+    for (int i = 0; i < data.size(); i++) {
+        const auto& row = data[i];
+
+        // 检查课程ID是否变化
+        QString currentCourseId = row["course_id"].toString();
+        if (currentCourseId != lastCourseId) {
+            useColor1 = !useColor1;  // 切换颜色
+            lastCourseId = currentCourseId;
+        }
+
+        // 选择当前行的颜色
+        QColor rowColor = useColor1 ? color1 : color2;
+
+        // 根据表头顺序填充列
+        // 表头：{"教师工号", "教师姓名", "课程ID", "课程名称", "学期", "上课时间", "教室"}
+
+        // 创建单元格并设置背景色
+        for (int col = 0; col < 7; col++) {
+            QTableWidgetItem* item = nullptr;
+
+            switch(col) {
+            case 0:  // 教师工号
+                item = new QTableWidgetItem(row["teacher_id"].toString());
+                break;
+            case 1:  // 教师姓名
+                item = new QTableWidgetItem(row["teacher_name"].toString());
+                break;
+            case 2:  // 课程ID
+                item = new QTableWidgetItem(row["course_id"].toString());
+                break;
+            case 3:  // 课程名称
+                item = new QTableWidgetItem(row["course_name"].toString());
+                break;
+            case 4:  // 学期
+                item = new QTableWidgetItem(row["semester"].toString());
+                break;
+            case 5:  // 上课时间
+                item = new QTableWidgetItem(row["class_time"].toString());
+                break;
+            case 6:  // 教室
+                item = new QTableWidgetItem(row["classroom"].toString());
+                break;
+            }
+
+            if (item) {
+                item->setBackground(rowColor);
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);  // 设置为只读
+                teachingTable->setItem(i, col, item);
+            }
+        }
+    }
 }
 
 void MainWindow::loadEnrollments()
 {
     auto data = db.getEnrollments();
-    loadTableData(enrollmentTable, data);
+    enrollmentTable->setRowCount(data.size());
+
+    // 获取系统主题的交替行颜色
+    QPalette palette = enrollmentTable->palette();
+    QColor color1 = palette.color(QPalette::Base);
+    QColor color2 = palette.color(QPalette::AlternateBase);
+
+    QString lastCourseId = "";
+    bool useColor1 = true;
+
+    for (int i = 0; i < data.size(); i++) {
+        const auto& row = data[i];
+
+        // 检查课程ID是否变化
+        QString currentCourseId = row["course_id"].toString();
+        if (currentCourseId != lastCourseId) {
+            useColor1 = !useColor1;  // 切换颜色
+            lastCourseId = currentCourseId;
+        }
+
+        // 选择当前行的颜色
+        QColor rowColor = useColor1 ? color1 : color2;
+
+        // 根据表头顺序填充列
+        // 表头：{"学生学号", "学生姓名", "课程ID", "课程名称", "学期", "成绩"}
+
+        // 创建单元格并设置背景色
+        for (int col = 0; col < 6; col++) {
+            QTableWidgetItem* item = nullptr;
+
+            switch(col) {
+            case 0:  // 学生学号
+                item = new QTableWidgetItem(row["student_id"].toString());
+                break;
+            case 1:  // 学生姓名
+                item = new QTableWidgetItem(row["student_name"].toString());
+                break;
+            case 2:  // 课程ID
+                item = new QTableWidgetItem(row["course_id"].toString());
+                break;
+            case 3:  // 课程名称
+                item = new QTableWidgetItem(row["course_name"].toString());
+                break;
+            case 4:  // 学期
+                item = new QTableWidgetItem(row["semester"].toString());
+                break;
+            case 5:  // 成绩
+                item = new QTableWidgetItem(row["score"].toString());
+                break;
+            }
+
+            if (item) {
+                item->setBackground(rowColor);
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);  // 设置为只读
+                enrollmentTable->setItem(i, col, item);
+            }
+        }
+    }
 }
 
 void MainWindow::loadUsers()
@@ -454,19 +661,19 @@ void MainWindow::loadUsers()
     for (int i = 0; i < data.size(); i++) {
         const auto& user = data[i];
 
-        // 按列顺序设置数据
-        int col = 0;
+        // 根据表头顺序设置列数据
+        // 表头顺序：{"用户ID", "用户名", "密码", "角色", "关联学生ID", "关联教师ID", "创建时间"}
 
-        // 用户ID (列0)
-        userTable->setItem(i, col++, new QTableWidgetItem(user["user_id"].toString()));
+        // 列0: 用户ID
+        userTable->setItem(i, 0, new QTableWidgetItem(user["user_id"].toString()));
 
-        // 用户名 (列1)
-        userTable->setItem(i, col++, new QTableWidgetItem(user["username"].toString()));
+        // 列1: 用户名
+        userTable->setItem(i, 1, new QTableWidgetItem(user["username"].toString()));
 
-        // 密码 (列2)
-        userTable->setItem(i, col++, new QTableWidgetItem(user["password"].toString()));
+        // 列2: 密码
+        userTable->setItem(i, 2, new QTableWidgetItem(user["password"].toString()));
 
-        // 角色 (列3) - 转换为文字
+        // 列3: 角色 - 转换为文字
         int roleValue = user["role"].toInt();
         QString roleStr;
         switch (roleValue) {
@@ -475,16 +682,16 @@ void MainWindow::loadUsers()
         case 2: roleStr = "管理员"; break;
         default: roleStr = "未知";
         }
-        userTable->setItem(i, col++, new QTableWidgetItem(roleStr));
+        userTable->setItem(i, 3, new QTableWidgetItem(roleStr));
 
-        // 关联学生ID (列4)
-        userTable->setItem(i, col++, new QTableWidgetItem(user["student_id"].toString()));
+        // 列4: 关联学生ID
+        userTable->setItem(i, 4, new QTableWidgetItem(user["student_id"].toString()));
 
-        // 关联教师ID (列5)
-        userTable->setItem(i, col++, new QTableWidgetItem(user["teacher_id"].toString()));
+        // 列5: 关联教师ID
+        userTable->setItem(i, 5, new QTableWidgetItem(user["teacher_id"].toString()));
 
-        // 创建时间 (列6)
-        userTable->setItem(i, col++, new QTableWidgetItem(user["created_at"].toString()));
+        // 列6: 创建时间
+        userTable->setItem(i, 6, new QTableWidgetItem(user["created_at"].toString()));
     }
 }
 
@@ -529,6 +736,7 @@ void MainWindow::addRecord(const QString& tableName, QTableWidget* table)
         int id = inputs[0]->text().toInt();
         QString name = inputs[1]->text();
         float credit = inputs[2]->text().toFloat();
+        QString semester = inputs[3]->text();
 
         if (name.isEmpty()) {
             QMessageBox::warning(this, "警告", "请输入课程名称");
@@ -538,6 +746,7 @@ void MainWindow::addRecord(const QString& tableName, QTableWidget* table)
         data["course_id"] = id;
         data["name"] = name;
         data["credit"] = credit;
+        data["semester"] = semester;
     }
 
     if (db.executeInsert(tableName, data)) {
@@ -587,6 +796,7 @@ void MainWindow::updateRecord(const QString& tableName, QTableWidget* table)
         id = inputs[0]->text().toInt();
         QString name = inputs[1]->text();
         float credit = inputs[2]->text().toFloat();
+        QString semester = inputs[3]->text();
 
         if (name.isEmpty()) {
             QMessageBox::warning(this, "警告", "请输入课程名称");
@@ -595,6 +805,7 @@ void MainWindow::updateRecord(const QString& tableName, QTableWidget* table)
 
         data["name"] = name;
         data["credit"] = credit;
+        data["semester"] = semester;
     }
 
     if (db.executeUpdate(tableName, id, data)) {
@@ -641,19 +852,19 @@ void MainWindow::addTeaching()
 {
     int teacherId = teachingTeacherIdEdit->text().toInt();
     int courseId = teachingCourseIdEdit->text().toInt();
-    QString semester = teachingSemesterEdit->text();
-    QString classTime = teachingClassTimeEdit->text();
-    QString classroom = teachingClassroomEdit->text();
+    QString classTime = teachingClassTimeEdit->text().trimmed();
+    QString classroom = teachingClassroomEdit->text().trimmed();
 
-    if (semester.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入学期");
+    // 数据库触发器会自动验证格式，这里只需基本检查
+    if (classTime.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请输入上课时间");
+        teachingClassTimeEdit->setFocus();
         return;
     }
 
     QVariantMap data;
     data["teacher_id"] = teacherId;
     data["course_id"] = courseId;
-    data["semester"] = semester;
     data["class_time"] = classTime;
     data["classroom"] = classroom;
 
@@ -670,10 +881,9 @@ void MainWindow::deleteTeaching()
 {
     int teacherId = teachingTeacherIdEdit->text().toInt();
     int courseId = teachingCourseIdEdit->text().toInt();
-    QString semester = teachingSemesterEdit->text();
 
     if (QMessageBox::question(this, "确认", "确定要删除这个授课信息吗？") == QMessageBox::Yes) {
-        if (db.deleteTeaching(teacherId, courseId, semester)) {
+        if (db.deleteTeaching(teacherId, courseId)) {
             QMessageBox::information(this, "成功", "删除授课信息成功");
             loadTeachings();
             clearInputs();
@@ -686,21 +896,14 @@ void MainWindow::deleteTeaching()
 void MainWindow::addEnrollment()
 {
     int studentId = enrollmentStudentIdEdit->text().toInt();
-    int teacherId = enrollmentTeacherIdEdit->text().toInt();
     int courseId = enrollmentCourseIdEdit->text().toInt();
-    QString semester = enrollmentSemesterEdit->text();
     float score = enrollmentScoreEdit->text().toFloat();
 
-    if (semester.isEmpty()) {
-        QMessageBox::warning(this, "警告", "请输入学期");
-        return;
-    }
+    // 不再需要学期参数
 
     QVariantMap data;
     data["student_id"] = studentId;
-    data["teacher_id"] = teacherId;
     data["course_id"] = courseId;
-    data["semester"] = semester;
     data["score"] = score;
 
     if (db.executeInsert("enrollments", data)) {
@@ -715,15 +918,13 @@ void MainWindow::addEnrollment()
 void MainWindow::updateEnrollmentScore()
 {
     int studentId = enrollmentStudentIdEdit->text().toInt();
-    int teacherId = enrollmentTeacherIdEdit->text().toInt();
     int courseId = enrollmentCourseIdEdit->text().toInt();
-    QString semester = enrollmentSemesterEdit->text();
     float score = enrollmentScoreEdit->text().toFloat();
 
     QVariantMap data;
     data["score"] = score;
 
-    if (db.updateEnrollment(studentId, teacherId, courseId, semester, data)) {
+    if (db.updateEnrollment(studentId, courseId, data)) {
         QMessageBox::information(this, "成功", "修改成绩成功");
         loadEnrollments();
     } else {
@@ -734,12 +935,10 @@ void MainWindow::updateEnrollmentScore()
 void MainWindow::deleteEnrollment()
 {
     int studentId = enrollmentStudentIdEdit->text().toInt();
-    int teacherId = enrollmentTeacherIdEdit->text().toInt();
     int courseId = enrollmentCourseIdEdit->text().toInt();
-    QString semester = enrollmentSemesterEdit->text();
 
     if (QMessageBox::question(this, "确认", "确定要删除这个选课记录吗？") == QMessageBox::Yes) {
-        if (db.deleteEnrollment(studentId, teacherId, courseId, semester)) {
+        if (db.deleteEnrollment(studentId, courseId)) {
             QMessageBox::information(this, "成功", "删除选课记录成功");
             loadEnrollments();
             clearInputs();
@@ -973,23 +1172,14 @@ void MainWindow::clearInputs()
         }
     }
 
+    // 授课管理输入框
     if (teachingTeacherIdEdit) teachingTeacherIdEdit->clear();
     if (teachingCourseIdEdit) teachingCourseIdEdit->clear();
-    if (teachingSemesterEdit) teachingSemesterEdit->clear();
     if (teachingClassTimeEdit) teachingClassTimeEdit->clear();
     if (teachingClassroomEdit) teachingClassroomEdit->clear();
 
+    // 选课管理输入框
     if (enrollmentStudentIdEdit) enrollmentStudentIdEdit->clear();
-    if (enrollmentTeacherIdEdit) enrollmentTeacherIdEdit->clear();
     if (enrollmentCourseIdEdit) enrollmentCourseIdEdit->clear();
-    if (enrollmentSemesterEdit) enrollmentSemesterEdit->clear();
     if (enrollmentScoreEdit) enrollmentScoreEdit->clear();
-}
-
-bool MainWindow::getPermissionForTable(const QString& tableName)
-{
-    if (tableName == "students") return m_currentUser.canManageStudents();
-    if (tableName == "teachers") return m_currentUser.canManageTeachers();
-    if (tableName == "courses") return m_currentUser.canManageCourses();
-    return false;
 }

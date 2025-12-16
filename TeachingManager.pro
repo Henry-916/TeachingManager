@@ -4,14 +4,12 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 CONFIG += c++17
 
-# 设置应用信息
 TARGET = TeachingManager
 TEMPLATE = app
 
-# 添加新的源文件和头文件
+# 只保留实际使用的文件
 SOURCES += \
     basewindow.cpp \
-    utils.cpp \
     database.cpp \
     main.cpp \
     mainwindow.cpp \
@@ -22,7 +20,6 @@ SOURCES += \
 
 HEADERS += \
     basewindow.h \
-    utils.h \
     database.h \
     mainwindow.h \
     user.h \
@@ -33,5 +30,4 @@ HEADERS += \
 FORMS += \
     logindialog.ui
 
-# 添加资源文件
 RESOURCES +=
