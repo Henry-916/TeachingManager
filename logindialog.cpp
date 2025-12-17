@@ -5,11 +5,11 @@
 #include <QDebug>
 #include <QSqlError>
 
-              LoginDialog::LoginDialog(Database &db, QWidget *parent)
+LoginDialog::LoginDialog(Database &db, QWidget *parent)
     : QDialog(parent)
-, ui(new Ui::LoginDialog)
-, m_db(db)
-, m_loggedIn(false)
+    , ui(new Ui::LoginDialog)
+    , m_db(db)
+    , m_loggedIn(false)
 {
     ui->setupUi(this);
     setWindowTitle("用户登录 - 教学管理系统");
@@ -17,20 +17,10 @@
 
     // 设置角色数据
     for (int i = 0; i < ui->roleComboBox->count(); ++i) {
-        switch (i) {
-        case 0: // 学生
-            ui->roleComboBox->setItemData(i, static_cast<int>(UserRole::Student));
-            break;
-        case 1: // 教师
-            ui->roleComboBox->setItemData(i, static_cast<int>(UserRole::Teacher));
-            break;
-        case 2: // 管理员
-            ui->roleComboBox->setItemData(i, static_cast<int>(UserRole::Admin));
-            break;
-        }
+        int roleValue = i;  // 0=学生, 1=教师, 2=管理员
+        ui->roleComboBox->setItemData(i, roleValue);
     }
 
-    // 密码显示模式
     ui->passwordEdit->setEchoMode(QLineEdit::Password);
 
     // 连接信号槽
@@ -38,10 +28,8 @@
     connect(ui->roleComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &LoginDialog::onRoleChanged);
 
-    // 初始更新UI
-    QTimer::singleShot(0, this, [this]() {
-        onRoleChanged(ui->roleComboBox->currentIndex());
-    });
+    // 直接调用，无需计时器
+    onRoleChanged(ui->roleComboBox->currentIndex());
 }
 
 LoginDialog::~LoginDialog()

@@ -129,3 +129,48 @@ void BaseWindow::loadTableData(QTableWidget* table, const QList<QMap<QString, QV
         }
     }
 }
+
+void BaseWindow::changePassword(const QString& currentPassword, const QString& newPassword,
+                                const QString& confirmPassword, const QVariant& studentId,
+                                const QVariant& teacherId)
+{
+    // 验证输入
+    if (currentPassword.isEmpty()) {
+        QMessageBox::warning(this, "输入错误", "请输入当前密码");
+        return;
+    }
+
+    if (newPassword.isEmpty()) {
+        QMessageBox::warning(this, "输入错误", "请输入新密码");
+        return;
+    }
+
+    if (confirmPassword.isEmpty()) {
+        QMessageBox::warning(this, "输入错误", "请确认新密码");
+        return;
+    }
+
+    if (newPassword != confirmPassword) {
+        QMessageBox::warning(this, "修改失败", "新密码和确认密码不一致");
+        return;
+    }
+
+    // 验证当前密码
+    int userId = m_currentUser.getId();
+    int role = static_cast<int>(m_currentUser.getRole());
+    int dummyUserId;
+
+    if (!db.validateUser(m_currentUser.getUsername(), currentPassword, role, dummyUserId)) {
+        QMessageBox::warning(this, "修改失败", "当前密码不正确");
+        return;
+    }
+
+    // 更新密码
+    if (db.updateUser(userId, m_currentUser.getUsername(), newPassword,
+                      role, studentId, teacherId)) {
+        QMessageBox::information(this, "修改成功", "密码修改成功，请重新登录");
+        emit logoutRequested();
+    } else {
+        QMessageBox::warning(this, "修改失败", "密码修改失败，请稍后重试");
+    }
+}

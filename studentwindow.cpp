@@ -102,7 +102,7 @@ void StudentWindow::setupUI()
     // 刷新按钮
     QHBoxLayout *refreshLayout = new QHBoxLayout();
     QPushButton *refreshEnrollmentButton = new QPushButton("刷新");
-    refreshLayout->addStretch();
+
     refreshLayout->addWidget(refreshEnrollmentButton);
     refreshLayout->addStretch();
     enrollmentLayout->addLayout(refreshLayout);
@@ -125,7 +125,7 @@ void StudentWindow::setupUI()
     // 刷新按钮
     QHBoxLayout *coursesRefreshLayout = new QHBoxLayout();
     QPushButton *refreshCoursesButton = new QPushButton("刷新");
-    coursesRefreshLayout->addStretch();
+
     coursesRefreshLayout->addWidget(refreshCoursesButton);
     coursesRefreshLayout->addStretch();
     coursesLayout->addLayout(coursesRefreshLayout);
@@ -145,78 +145,11 @@ void StudentWindow::setupUI()
 
 void StudentWindow::onChangePassword()
 {
-    QString currentPassword = currentPasswordEdit->text();
-    QString newPassword = newPasswordEdit->text();
-    QString confirmPassword = confirmPasswordEdit->text();
-
-    // 验证输入
-    if (currentPassword.isEmpty()) {
-        QMessageBox::warning(this, "输入错误", "请输入当前密码");
-        currentPasswordEdit->setFocus();
-        return;
-    }
-
-    if (newPassword.isEmpty()) {
-        QMessageBox::warning(this, "输入错误", "请输入新密码");
-        newPasswordEdit->setFocus();
-        return;
-    }
-
-    if (confirmPassword.isEmpty()) {
-        QMessageBox::warning(this, "输入错误", "请确认新密码");
-        confirmPasswordEdit->setFocus();
-        return;
-    }
-
-    if (newPassword.length() < 6) {
-        QMessageBox::warning(this, "输入错误", "新密码至少需要6位");
-        newPasswordEdit->setFocus();
-        newPasswordEdit->selectAll();
-        return;
-    }
-
-    if (newPassword != confirmPassword) {
-        QMessageBox::warning(this, "修改失败", "新密码和确认密码不一致");
-        newPasswordEdit->setFocus();
-        newPasswordEdit->selectAll();
-        return;
-    }
-
-    if (newPassword == currentPassword) {
-        QMessageBox::warning(this, "修改失败", "新密码不能与旧密码相同");
-        newPasswordEdit->setFocus();
-        newPasswordEdit->selectAll();
-        return;
-    }
-
-    // 验证当前密码
-    int userId = m_currentUser.getId();
-    int role = static_cast<int>(m_currentUser.getRole());
-    int dummyUserId;
-
-    if (!db.validateUser(m_currentUser.getUsername(), currentPassword,
-                         role, dummyUserId)) {
-        QMessageBox::warning(this, "修改失败", "当前密码不正确");
-        currentPasswordEdit->setFocus();
-        currentPasswordEdit->selectAll();
-        return;
-    }
-
-    // 更新密码
-    if (db.updateUser(userId, m_currentUser.getUsername(), newPassword,
-                      role, QVariant(m_studentId), QVariant())) {
-        QMessageBox::information(this, "修改成功", "密码修改成功，请重新登录");
-
-        // 清空密码输入框
-        currentPasswordEdit->clear();
-        newPasswordEdit->clear();
-        confirmPasswordEdit->clear();
-
-        // 重新登录
-        emit logoutRequested();
-    } else {
-        QMessageBox::warning(this, "修改失败", "密码修改失败，请稍后重试");
-    }
+    changePassword(currentPasswordEdit->text(),
+                   newPasswordEdit->text(),
+                   confirmPasswordEdit->text(),
+                   QVariant(m_studentId),  // 学生ID
+                   QVariant());  // 教师ID为空
 }
 
 void StudentWindow::loadData()

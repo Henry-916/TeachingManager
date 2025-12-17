@@ -39,6 +39,10 @@ protected:
     QWidget* topBarWidget;      // 新增：顶部栏容器
     QPushButton* logoutButton;  // 新增：退出登录按钮
 
+    void changePassword(const QString& currentPassword, const QString& newPassword,
+                        const QString& confirmPassword, const QVariant& studentId = QVariant(),
+                        const QVariant& teacherId = QVariant());
+
 protected slots:
     virtual void onLogoutClicked();
 
