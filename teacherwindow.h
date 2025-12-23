@@ -33,11 +33,6 @@ private:
     QTabWidget* tabWidget;
     QLabel* infoLabel;
     QTableWidget* infoTable;
-    QGroupBox* passwordGroup;
-    QLineEdit* currentPasswordEdit;
-    QLineEdit* newPasswordEdit;
-    QLineEdit* confirmPasswordEdit;
-    QPushButton* changePasswordButton;
     QTableWidget* teachingsTable;
     QTableWidget* studentsTable;
 };

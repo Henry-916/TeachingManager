@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QSpacerItem>
+#include <QGroupBox>
 #include "User.h"
 #include "database.h"
 
@@ -38,10 +39,19 @@ protected:
     // 公共UI组件
     QWidget* topBarWidget;      // 新增：顶部栏容器
     QPushButton* logoutButton;  // 新增：退出登录按钮
+    QGroupBox* createPasswordChangeGroup();
 
+    void setupCommonTable(QTableWidget* table, const QStringList& headers);
+    void loadCommonTableData(QTableWidget* table, const QList<QMap<QString, QVariant>>& data);
     void changePassword(const QString& currentPassword, const QString& newPassword,
-                        const QString& confirmPassword, const QVariant& studentId = QVariant(),
-                        const QVariant& teacherId = QVariant());
+                        const QString& confirmPassword);
+
+    // 密码修改相关组件
+    QGroupBox* passwordGroup = nullptr;
+    QLineEdit* currentPasswordEdit = nullptr;
+    QLineEdit* newPasswordEdit = nullptr;
+    QLineEdit* confirmPasswordEdit = nullptr;
+    QPushButton* changePasswordButton = nullptr;
 
 protected slots:
     virtual void onLogoutClicked();

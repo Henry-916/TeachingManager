@@ -25,7 +25,6 @@ private:
 
     void loadStudentInfo();
     void loadEnrollments();
-    void loadAvailableCourses();
 
     int m_studentId;
 
@@ -33,13 +32,7 @@ private:
     QTabWidget* tabWidget;
     QLabel* infoLabel;
     QTableWidget* infoTable;
-    QGroupBox* passwordGroup;
-    QLineEdit* currentPasswordEdit;
-    QLineEdit* newPasswordEdit;
-    QLineEdit* confirmPasswordEdit;
-    QPushButton* changePasswordButton;
     QTableWidget* myEnrollmentsTable;
-    QTableWidget* availableCoursesTable;
 };
 
 #endif // STUDENTWINDOW_H

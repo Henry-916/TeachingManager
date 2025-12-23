@@ -1,4 +1,3 @@
-// database.h 清理后
 #ifndef DATABASE_H
 #define DATABASE_H
 
@@ -8,6 +7,7 @@
 #include <QSqlError>
 #include <QVariant>
 #include <QMap>
+#include <QSettings>
 
 class Database : public QObject
 {
@@ -15,8 +15,16 @@ class Database : public QObject
 
 public:
     static Database& getInstance();
-    bool connect();
+    bool connect(const QString& host = "localhost",
+                 const QString& database = "teaching_manager",
+                 const QString& username = "root",
+                 const QString& password = "123456",
+                 int port = 3306);
     bool isConnected() const;
+
+    // 数据库配置
+    void saveDatabaseConfig();
+    void loadDatabaseConfig();
 
     // 通用操作
     bool executeInsert(const QString& table, const QVariantMap& data);
@@ -37,10 +45,8 @@ public:
     QList<QMap<QString, QVariant>> getUsers();
 
     // 用户管理
-    bool addUser(const QString& username, const QString& password, int role,
-                 const QVariant& studentId, const QVariant& teacherId);
-    bool updateUser(int userId, const QString& username, const QString& password,
-                    int role, const QVariant& studentId, const QVariant& teacherId);
+    bool addUser(const QString& account, const QString& password, int role);
+    bool updateUser(int userId, const QString& account, const QString& password, int role);
     bool deleteUser(int userId);
     bool checkUsernameExists(const QString& username, int excludeUserId = -1);
 
@@ -57,7 +63,14 @@ private:
     Database& operator=(const Database&) = delete;
 
     void createTables();
-    bool enableForeignKeys();
+    bool createDatabaseIfNotExists();
+
+    // 数据库连接信息
+    QString m_host;
+    QString m_database;
+    QString m_username;
+    QString m_password;
+    int m_port;
 
     // 主键映射
     QMap<QString, QString> m_primaryKeys;

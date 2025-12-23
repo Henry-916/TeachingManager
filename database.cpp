@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QSqlRecord>
 #include <QElapsedTimer>
+#include <QSettings>
+#include <QFileInfo>
 
 Database::Database(QObject *parent) : QObject(parent)
 {
@@ -15,6 +17,13 @@ Database::Database(QObject *parent) : QObject(parent)
     m_primaryKeys["users"] = "user_id";
     m_primaryKeys["teachings"] = "id";
     m_primaryKeys["enrollments"] = "id";
+
+    // 默认连接参数
+    m_host = "localhost";
+    m_database = "teaching_manager";
+    m_username = "root";
+    m_password = "123456";
+    m_port = 3306;
 }
 
 Database& Database::getInstance()
@@ -23,181 +32,193 @@ Database& Database::getInstance()
     return instance;
 }
 
-bool Database::connect()
+bool Database::connect(const QString& host, const QString& database,
+                       const QString& username, const QString& password, int port)
 {
-    QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
-    QString dbPath = QApplication::applicationDirPath() + "/teaching_manager.db";
-    db.setDatabaseName(dbPath);
+    // 保存连接参数
+    m_host = host;
+    m_database = database;
+    m_username = username;
+    m_password = password;
+    m_port = port;
 
-    if (!db.open()) {
-        QMessageBox::critical(nullptr, "数据库连接失败",
-                              "无法打开SQLite数据库:\n" + db.lastError().text() +
-                                  "\n\n文件路径: " + dbPath);
+    // 1. 先尝试直接连接MySQL服务器（不指定数据库）
+    QSqlDatabase tempDb = QSqlDatabase::addDatabase("QMYSQL", "temp_connection");
+    tempDb.setHostName(m_host);
+    tempDb.setPort(m_port);
+    tempDb.setUserName(m_username);
+    tempDb.setPassword(m_password);
+
+    if (!tempDb.open()) {
+        QMessageBox::critical(nullptr, "MySQL连接失败",
+                              "无法连接MySQL服务器:\n" + tempDb.lastError().text());
+        QSqlDatabase::removeDatabase("temp_connection");
         return false;
     }
 
-    enableForeignKeys();
-    createTables();
-    qDebug() << "SQLite数据库连接成功!";
-    return true;
-}
+    // 2. 检查数据库是否存在，不存在则创建
+    QSqlQuery checkDbQuery(tempDb);
+    QString checkDbSql = QString("CREATE DATABASE IF NOT EXISTS `%1` "
+                                 "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci").arg(m_database);
 
-bool Database::enableForeignKeys()
-{
-    QSqlQuery query;
-    return query.exec("PRAGMA foreign_keys = ON");
+    if (!checkDbQuery.exec(checkDbSql)) {
+        QMessageBox::critical(nullptr, "数据库错误",
+                              "无法创建数据库:\n" + checkDbQuery.lastError().text());
+        tempDb.close();
+        QSqlDatabase::removeDatabase("temp_connection");
+        return false;
+    }
+
+    // 3. 关闭临时连接
+    tempDb.close();
+    QSqlDatabase::removeDatabase("temp_connection");
+
+    // 4. 重新连接指定数据库
+    QSqlDatabase db = QSqlDatabase::addDatabase("QMYSQL");
+    db.setHostName(m_host);
+    db.setPort(m_port);
+    db.setDatabaseName(m_database);
+    db.setUserName(m_username);
+    db.setPassword(m_password);
+
+    if (!db.open()) {
+        QMessageBox::critical(nullptr, "数据库连接失败",
+                              "无法打开数据库:\n" + db.lastError().text());
+        return false;
+    }
+
+    // 5. 创建表结构
+    createTables();
+    qDebug() << "MySQL数据库连接成功! 数据库:" << m_database;
+    return true;
 }
 
 void Database::createTables()
 {
+    // MySQL建表语句（注意语法差异）
     QStringList tableQueries = {
         // 用户表
         "CREATE TABLE IF NOT EXISTS users ("
-        "user_id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "username TEXT UNIQUE NOT NULL, "
-        "password TEXT NOT NULL, "
-        "role INTEGER NOT NULL DEFAULT 0, "
-        "student_id INTEGER DEFAULT NULL, "
-        "teacher_id INTEGER DEFAULT NULL, "
-        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+        "user_id INT PRIMARY KEY AUTO_INCREMENT, "
+        "account VARCHAR(50) UNIQUE NOT NULL, "
+        "password VARCHAR(100) NOT NULL, "
+        "role INT NOT NULL DEFAULT 0"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        // 学生表
         "CREATE TABLE IF NOT EXISTS students ("
-        "student_id INTEGER PRIMARY KEY, "
-        "name TEXT NOT NULL, "
-        "age INTEGER, "
-        "credits INTEGER DEFAULT 0)",
+        "student_id INT PRIMARY KEY, "
+        "name VARCHAR(100) NOT NULL, "
+        "age INT, "
+        "credits INT DEFAULT 0"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        // 教师表
         "CREATE TABLE IF NOT EXISTS teachers ("
-        "teacher_id INTEGER PRIMARY KEY, "
-        "name TEXT NOT NULL, "
-        "age INTEGER)",
+        "teacher_id INT PRIMARY KEY, "
+        "name VARCHAR(100) NOT NULL, "
+        "age INT"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
-        // 课程表添加 semester 字段
+        // 课程表
         "CREATE TABLE IF NOT EXISTS courses ("
-        "course_id INTEGER PRIMARY KEY, "
-        "name TEXT NOT NULL, "
-        "credit REAL, "
-        "semester TEXT)",  // 新增 semester 字段
+        "course_id INT PRIMARY KEY, "
+        "name VARCHAR(200) NOT NULL, "
+        "credit DECIMAL(4,1), "
+        "semester VARCHAR(20)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
-        // 授课表移除 semester 字段
+        // 授课表 - 添加自增主键
         "CREATE TABLE IF NOT EXISTS teachings ("
-        "teacher_id INTEGER, "
-        "course_id INTEGER, "
-        "class_time TEXT, "
-        "classroom TEXT, "
-        "PRIMARY KEY (teacher_id, course_id), "  // 移除 semester 从主键
+        "id INT PRIMARY KEY AUTO_INCREMENT, "
+        "teacher_id INT, "
+        "course_id INT, "
+        "class_time VARCHAR(50), "
+        "classroom VARCHAR(50), "
+        "UNIQUE KEY uk_teacher_course (teacher_id, course_id), "
         "FOREIGN KEY (teacher_id) REFERENCES teachers(teacher_id) ON DELETE CASCADE, "
-        "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)",
+        "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
-        // 选课表移除 semester 字段
+        // 选课表 - 添加自增主键
         "CREATE TABLE IF NOT EXISTS enrollments ("
-        "student_id INTEGER, "
-        "course_id INTEGER, "
-        "score REAL DEFAULT 0, "
-        "PRIMARY KEY (student_id, course_id), "  // 移除 semester 从主键
+        "id INT PRIMARY KEY AUTO_INCREMENT, "
+        "student_id INT, "
+        "course_id INT, "
+        "score DECIMAL(4,1) DEFAULT 0, "
+        "UNIQUE KEY uk_student_course (student_id, course_id), "
         "FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE, "
-        "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE)"
+        "FOREIGN KEY (course_id) REFERENCES courses(course_id) ON DELETE CASCADE"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     };
 
     // 执行建表语句
+    QSqlQuery query;
     for (const auto& queryStr : tableQueries) {
-        QSqlQuery query;
         if (!query.exec(queryStr)) {
-            qWarning() << "创建表失败:" << query.lastError().text();
+            qWarning() << "创建表失败:" << query.lastError().text()
+                << "\nSQL:" << queryStr;
         }
     }
 
-    // 创建触发器来限制只能有一个管理员 (role = 2)
+    // MySQL触发器语法不同
     QStringList triggerQueries = {
-        // 防止插入多个管理员
-        "CREATE TRIGGER IF NOT EXISTS single_admin_insert "
-        "BEFORE INSERT ON users "
-        "WHEN NEW.role = 2 "
-        "BEGIN "
-        "    SELECT CASE "
-        "        WHEN (SELECT COUNT(*) FROM users WHERE role = 2) > 0 "
-        "        THEN RAISE(ABORT, '只能有一个管理员') "
-        "    END; "
-        "END;",
-
         // 防止更新产生多个管理员
         "CREATE TRIGGER IF NOT EXISTS single_admin_update "
         "BEFORE UPDATE ON users "
-        "WHEN NEW.role = 2 AND OLD.role != 2 "
+        "FOR EACH ROW "
         "BEGIN "
-        "    SELECT CASE "
-        "        WHEN (SELECT COUNT(*) FROM users WHERE role = 2 AND user_id != OLD.user_id) > 0 "
-        "        THEN RAISE(ABORT, '只能有一个管理员') "
-        "    END; "
-        "END;",
+        "    IF NEW.role = 2 AND OLD.role != 2 AND "
+        "       (SELECT COUNT(*) FROM users WHERE role = 2 AND user_id != OLD.user_id) > 0 THEN "
+        "        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '只能有一个管理员'; "
+        "    END IF; "
+        "END",
 
         // 插入学生时自动创建用户账户
         "CREATE TRIGGER IF NOT EXISTS create_student_user_trigger "
         "AFTER INSERT ON students "
+        "FOR EACH ROW "
         "BEGIN "
-        "    INSERT OR IGNORE INTO users (username, password, role, student_id, teacher_id, created_at) "
-        "    VALUES (NEW.student_id, '123456', 0, NEW.student_id, NULL, CURRENT_TIMESTAMP); "
-        "END;",
+        "    INSERT IGNORE INTO users (account, password, role) "
+        "    VALUES (NEW.student_id, '123456', 0); "
+        "END",
 
         // 插入教师时自动创建用户账户
         "CREATE TRIGGER IF NOT EXISTS create_teacher_user_trigger "
         "AFTER INSERT ON teachers "
+        "FOR EACH ROW "
         "BEGIN "
-        "    INSERT OR IGNORE INTO users (username, password, role, student_id, teacher_id, created_at) "
-        "    VALUES (NEW.teacher_id, '123456', 1, NULL, NEW.teacher_id, CURRENT_TIMESTAMP); "
-        "END;",
-
-        // 更新学生学号时同步更新用户名
-        "CREATE TRIGGER IF NOT EXISTS update_student_username_trigger "
-        "AFTER UPDATE OF student_id ON students "
-        "WHEN OLD.student_id != NEW.student_id "
-        "BEGIN "
-        "    UPDATE users SET username = NEW.student_id "
-        "    WHERE student_id = OLD.student_id AND role = 0; "
-        "END;",
-
-        // 更新教师工号时同步更新用户名
-        "CREATE TRIGGER IF NOT EXISTS update_teacher_username_trigger "
-        "AFTER UPDATE OF teacher_id ON teachers "
-        "WHEN OLD.teacher_id != NEW.teacher_id "
-        "BEGIN "
-        "    UPDATE users SET username = NEW.teacher_id "
-        "    WHERE teacher_id = OLD.teacher_id AND role = 1; "
-        "END;",
-
-        // 删除学生时自动删除用户账户
-        "CREATE TRIGGER IF NOT EXISTS delete_student_user_trigger "
-        "AFTER DELETE ON students "
-        "BEGIN "
-        "    DELETE FROM users WHERE student_id = OLD.student_id AND role = 0; "
-        "END;",
-
-        // 删除教师时自动删除用户账户
-        "CREATE TRIGGER IF NOT EXISTS delete_teacher_user_trigger "
-        "AFTER DELETE ON teachers "
-        "BEGIN "
-        "    DELETE FROM users WHERE teacher_id = OLD.teacher_id AND role = 1; "
-        "END;"
+        "    INSERT IGNORE INTO users (account, password, role) "
+        "    VALUES (NEW.teacher_id, '123456', 1); "
+        "END"
     };
 
     // 执行触发器语句
     for (const auto& queryStr : triggerQueries) {
-        QSqlQuery query;
         if (!query.exec(queryStr)) {
             qWarning() << "创建触发器失败:" << query.lastError().text();
         }
     }
+}
 
-    // 创建默认管理员账户
-    QSqlQuery checkQuery("SELECT COUNT(*) FROM users WHERE username = 'admin'");
-    if (checkQuery.next() && checkQuery.value(0).toInt() == 0) {
-        // 使用 addUser 函数，它会检查是否已存在管理员
-        if (!addUser("admin", "admin123", 2, QVariant(), QVariant())) {
-            qDebug() << "默认管理员账户创建失败，可能已存在管理员";
-        } else {
-            qDebug() << "创建默认管理员账户成功: admin/admin123";
-        }
-    }
+void Database::saveDatabaseConfig()
+{
+    QSettings settings("TeachingSystem", "TeachingManager");
+    settings.setValue("Database/Host", m_host);
+    settings.setValue("Database/Name", m_database);
+    settings.setValue("Database/Username", m_username);
+    settings.setValue("Database/Password", m_password);
+    settings.setValue("Database/Port", m_port);
+}
+
+void Database::loadDatabaseConfig()
+{
+    QSettings settings("TeachingSystem", "TeachingManager");
+    m_host = settings.value("Database/Host", "localhost").toString();
+    m_database = settings.value("Database/Name", "teaching_manager").toString();
+    m_username = settings.value("Database/Username", "root").toString();
+    m_password = settings.value("Database/Password", "").toString();
+    m_port = settings.value("Database/Port", 3306).toInt();
 }
 
 bool Database::isConnected() const
@@ -212,11 +233,11 @@ bool Database::executeInsert(const QString& table, const QVariantMap& data)
 
     QStringList fields, placeholders;
     for (auto it = data.begin(); it != data.end(); ++it) {
-        fields << it.key();
+        fields << QString("`%1`").arg(it.key());  // MySQL使用反引号
         placeholders << ":" + it.key();
     }
 
-    QString sql = QString("INSERT INTO %1 (%2) VALUES (%3)")
+    QString sql = QString("INSERT INTO `%1` (%2) VALUES (%3)")
                       .arg(table)
                       .arg(fields.join(", "))
                       .arg(placeholders.join(", "));
@@ -228,7 +249,6 @@ bool Database::executeInsert(const QString& table, const QVariantMap& data)
         query.bindValue(":" + it.key(), it.value());
     }
 
-    // 直接返回执行结果，触发器会自动处理用户创建
     return query.exec();
 }
 
@@ -238,13 +258,12 @@ bool Database::executeUpdate(const QString& table, int id, const QVariantMap& da
 
     QStringList updates;
     for (auto it = data.begin(); it != data.end(); ++it) {
-        updates << it.key() + " = :" + it.key();
+        updates << QString("`%1` = :%2").arg(it.key()).arg(it.key());
     }
 
-    // 获取主键字段名
     QString idField = m_primaryKeys.value(table, "id");
 
-    QString sql = QString("UPDATE %1 SET %2 WHERE %3 = :id")
+    QString sql = QString("UPDATE `%1` SET %2 WHERE `%3` = :id")
                       .arg(table)
                       .arg(updates.join(", "))
                       .arg(idField);
@@ -294,10 +313,7 @@ QList<QMap<QString, QVariant>> Database::executeSelect(const QString& table,
         fields = "course_id, name, credit, semester";  // 添加 semester 字段
         orderBy = "course_id";
     } else if (table == "users") {
-        fields = "user_id, username, password, role, "
-                 "COALESCE(student_id, '') as student_id, "
-                 "COALESCE(teacher_id, '') as teacher_id, "
-                 "created_at";
+        fields = "user_id, account, password, role";
         orderBy = "user_id";
     } else {
         fields = "*";
@@ -339,7 +355,7 @@ QList<QMap<QString, QVariant>> Database::getTeachings()
                   "te.name as teacher_name, " // 教师姓名 - 列1
                   "t.course_id, "            // 课程ID - 列2
                   "c.name as course_name, "  // 课程名称 - 列3
-                  "c.semester, "             // 学期 - 列4（现在从 courses 表获取）
+                  "c.semester, "             // 学期 - 列4
                   "t.class_time, "           // 上课时间 - 列5
                   "t.classroom "             // 教室 - 列6
                   "FROM teachings t "
@@ -372,7 +388,7 @@ QList<QMap<QString, QVariant>> Database::getEnrollments()
                   "s.name as student_name, " // 学生姓名 - 列1
                   "e.course_id, "            // 课程ID - 列2
                   "c.name as course_name, "  // 课程名称 - 列3
-                  "c.semester, "             // 学期 - 列4（现在从 courses 表获取）
+                  "c.semester, "             // 学期 - 列4
                   "e.score "                 // 成绩 - 列5
                   "FROM enrollments e "
                   "LEFT JOIN students s ON e.student_id = s.student_id "
@@ -398,10 +414,7 @@ QList<QMap<QString, QVariant>> Database::getUsers()
 {
     QList<QMap<QString, QVariant>> result;
 
-    QString sql = "SELECT user_id, username, password, role, "
-                  "COALESCE(student_id, '') as student_id, "
-                  "COALESCE(teacher_id, '') as teacher_id, "
-                  "created_at FROM users ORDER BY user_id";
+    QString sql = "SELECT user_id, account, password, role FROM users ORDER BY user_id";
 
     QSqlQuery query(sql);
 
@@ -418,8 +431,7 @@ QList<QMap<QString, QVariant>> Database::getUsers()
 }
 
 // 用户管理
-bool Database::addUser(const QString& username, const QString& password, int role,
-                       const QVariant& studentId, const QVariant& teacherId)
+bool Database::addUser(const QString& account, const QString& password, int role)
 {
     // 检查是否已存在管理员（应用层检查，提供友好提示）
     if (role == 2) { // 管理员角色
@@ -434,70 +446,52 @@ bool Database::addUser(const QString& username, const QString& password, int rol
 
     // 检查用户名是否已存在
     QSqlQuery checkUserQuery;
-    checkUserQuery.prepare("SELECT COUNT(*) FROM users WHERE username = ?");
-    checkUserQuery.addBindValue(username);
+    checkUserQuery.prepare("SELECT COUNT(*) FROM users WHERE account = ?");
+    checkUserQuery.addBindValue(account);
     if (checkUserQuery.exec() && checkUserQuery.next() && checkUserQuery.value(0).toInt() > 0) {
-        qWarning() << "添加用户失败：用户名已存在：" << username;
+        qWarning() << "添加用户失败：账号已存在：" << account;
         return false;
     }
 
-    // 检查关联ID的唯一性
+    // 对于学生和教师，验证对应的ID是否存在
     if (role == 0) { // 学生
-        if (studentId.isValid()) {
-            QSqlQuery checkStudentQuery;
-            checkStudentQuery.prepare("SELECT COUNT(*) FROM users WHERE student_id = ?");
-            checkStudentQuery.addBindValue(studentId.toInt());
-            if (checkStudentQuery.exec() && checkStudentQuery.next() &&
-                checkStudentQuery.value(0).toInt() > 0) {
-                qWarning() << "添加用户失败：学生ID已被使用:" << studentId.toInt();
-                return false;
-            }
+        bool ok;
+        int studentId = account.toInt(&ok);
+        if (!ok) {
+            qWarning() << "添加用户失败：学生账号必须是数字";
+            return false;
+        }
 
-            // 同时检查学生表中是否存在该学生
-            checkStudentQuery.prepare("SELECT COUNT(*) FROM students WHERE student_id = ?");
-            checkStudentQuery.addBindValue(studentId.toInt());
-            if (checkStudentQuery.exec() && checkStudentQuery.next() &&
-                checkStudentQuery.value(0).toInt() == 0) {
-                qWarning() << "添加用户失败：学生表中不存在该学生ID:" << studentId.toInt();
-                return false;
-            }
+        QSqlQuery checkStudentQuery;
+        checkStudentQuery.prepare("SELECT COUNT(*) FROM students WHERE student_id = ?");
+        checkStudentQuery.addBindValue(studentId);
+        if (checkStudentQuery.exec() && checkStudentQuery.next() &&
+            checkStudentQuery.value(0).toInt() == 0) {
+            qWarning() << "添加用户失败：学生表中不存在该学生ID:" << studentId;
+            return false;
         }
     } else if (role == 1) { // 教师
-        if (teacherId.isValid()) {
-            QSqlQuery checkTeacherQuery;
-            checkTeacherQuery.prepare("SELECT COUNT(*) FROM users WHERE teacher_id = ?");
-            checkTeacherQuery.addBindValue(teacherId.toInt());
-            if (checkTeacherQuery.exec() && checkTeacherQuery.next() &&
-                checkTeacherQuery.value(0).toInt() > 0) {
-                qWarning() << "添加用户失败：教师ID已被使用:" << teacherId.toInt();
-                return false;
-            }
+        bool ok;
+        int teacherId = account.toInt(&ok);
+        if (!ok) {
+            qWarning() << "添加用户失败：教师账号必须是数字";
+            return false;
+        }
 
-            // 同时检查教师表中是否存在该教师
-            checkTeacherQuery.prepare("SELECT COUNT(*) FROM teachers WHERE teacher_id = ?");
-            checkTeacherQuery.addBindValue(teacherId.toInt());
-            if (checkTeacherQuery.exec() && checkTeacherQuery.next() &&
-                checkTeacherQuery.value(0).toInt() == 0) {
-                qWarning() << "添加用户失败：教师表中不存在该教师ID:" << teacherId.toInt();
-                return false;
-            }
+        QSqlQuery checkTeacherQuery;
+        checkTeacherQuery.prepare("SELECT COUNT(*) FROM teachers WHERE teacher_id = ?");
+        checkTeacherQuery.addBindValue(teacherId);
+        if (checkTeacherQuery.exec() && checkTeacherQuery.next() &&
+            checkTeacherQuery.value(0).toInt() == 0) {
+            qWarning() << "添加用户失败：教师表中不存在该教师ID:" << teacherId;
+            return false;
         }
     }
 
     QVariantMap data;
-    data["username"] = username;
+    data["account"] = account;
     data["password"] = password;
     data["role"] = role;
-    if (studentId.isValid()) {
-        data["student_id"] = studentId;
-    } else {
-        data["student_id"] = QVariant();
-    }
-    if (teacherId.isValid()) {
-        data["teacher_id"] = teacherId;
-    } else {
-        data["teacher_id"] = QVariant();
-    }
 
     bool success = executeInsert("users", data);
     if (!success) {
@@ -506,8 +500,8 @@ bool Database::addUser(const QString& username, const QString& password, int rol
     return success;
 }
 
-bool Database::updateUser(int userId, const QString& username, const QString& password,
-                          int role, const QVariant& studentId, const QVariant& teacherId)
+bool Database::updateUser(int userId, const QString& account, const QString& password,
+                          int role)
 {
     // 先获取用户当前的角色
     QSqlQuery getCurrentRoleQuery;
@@ -532,75 +526,55 @@ bool Database::updateUser(int userId, const QString& username, const QString& pa
         }
     }
 
-    // 检查用户名是否已存在（排除当前用户）
+    // 检查账号是否已存在（排除当前用户）
     QSqlQuery checkUserQuery;
-    checkUserQuery.prepare("SELECT COUNT(*) FROM users WHERE username = ? AND user_id != ?");
-    checkUserQuery.addBindValue(username);
+    checkUserQuery.prepare("SELECT COUNT(*) FROM users WHERE account = ? AND user_id != ?");
+    checkUserQuery.addBindValue(account);
     checkUserQuery.addBindValue(userId);
     if (checkUserQuery.exec() && checkUserQuery.next() && checkUserQuery.value(0).toInt() > 0) {
-        qWarning() << "更新用户失败：用户名已存在：" << username;
+        qWarning() << "更新用户失败：账号已存在：" << account;
         return false;
     }
 
-    // 检查关联ID的唯一性
+    // 对于学生和教师，验证对应的ID是否存在
     if (role == 0) { // 学生
-        if (studentId.isValid()) {
-            QSqlQuery checkStudentQuery;
-            checkStudentQuery.prepare("SELECT COUNT(*) FROM users WHERE student_id = ? AND user_id != ?");
-            checkStudentQuery.addBindValue(studentId.toInt());
-            checkStudentQuery.addBindValue(userId);
-            if (checkStudentQuery.exec() && checkStudentQuery.next() &&
-                checkStudentQuery.value(0).toInt() > 0) {
-                qWarning() << "更新用户失败：学生ID已被其他用户使用:" << studentId.toInt();
-                return false;
-            }
+        bool ok;
+        int studentId = account.toInt(&ok);
+        if (!ok) {
+            qWarning() << "更新用户失败：学生账号必须是数字";
+            return false;
+        }
 
-            // 同时检查学生表中是否存在该学生
-            checkStudentQuery.prepare("SELECT COUNT(*) FROM students WHERE student_id = ?");
-            checkStudentQuery.addBindValue(studentId.toInt());
-            if (checkStudentQuery.exec() && checkStudentQuery.next() &&
-                checkStudentQuery.value(0).toInt() == 0) {
-                qWarning() << "更新用户失败：学生表中不存在该学生ID:" << studentId.toInt();
-                return false;
-            }
+        QSqlQuery checkStudentQuery;
+        checkStudentQuery.prepare("SELECT COUNT(*) FROM students WHERE student_id = ?");
+        checkStudentQuery.addBindValue(studentId);
+        if (checkStudentQuery.exec() && checkStudentQuery.next() &&
+            checkStudentQuery.value(0).toInt() == 0) {
+            qWarning() << "更新用户失败：学生表中不存在该学生ID:" << studentId;
+            return false;
         }
     } else if (role == 1) { // 教师
-        if (teacherId.isValid()) {
-            QSqlQuery checkTeacherQuery;
-            checkTeacherQuery.prepare("SELECT COUNT(*) FROM users WHERE teacher_id = ? AND user_id != ?");
-            checkTeacherQuery.addBindValue(teacherId.toInt());
-            checkTeacherQuery.addBindValue(userId);
-            if (checkTeacherQuery.exec() && checkTeacherQuery.next() &&
-                checkTeacherQuery.value(0).toInt() > 0) {
-                qWarning() << "更新用户失败：教师ID已被其他用户使用:" << teacherId.toInt();
-                return false;
-            }
+        bool ok;
+        int teacherId = account.toInt(&ok);
+        if (!ok) {
+            qWarning() << "更新用户失败：教师账号必须是数字";
+            return false;
+        }
 
-            // 同时检查教师表中是否存在该教师
-            checkTeacherQuery.prepare("SELECT COUNT(*) FROM teachers WHERE teacher_id = ?");
-            checkTeacherQuery.addBindValue(teacherId.toInt());
-            if (checkTeacherQuery.exec() && checkTeacherQuery.next() &&
-                checkTeacherQuery.value(0).toInt() == 0) {
-                qWarning() << "更新用户失败：教师表中不存在该教师ID:" << teacherId.toInt();
-                return false;
-            }
+        QSqlQuery checkTeacherQuery;
+        checkTeacherQuery.prepare("SELECT COUNT(*) FROM teachers WHERE teacher_id = ?");
+        checkTeacherQuery.addBindValue(teacherId);
+        if (checkTeacherQuery.exec() && checkTeacherQuery.next() &&
+            checkTeacherQuery.value(0).toInt() == 0) {
+            qWarning() << "更新用户失败：教师表中不存在该教师ID:" << teacherId;
+            return false;
         }
     }
 
     QVariantMap data;
-    data["username"] = username;
+    data["account"] = account;
     data["password"] = password;
     data["role"] = role;
-    if (studentId.isValid()) {
-        data["student_id"] = studentId;
-    } else {
-        data["student_id"] = QVariant();
-    }
-    if (teacherId.isValid()) {
-        data["teacher_id"] = teacherId;
-    } else {
-        data["teacher_id"] = QVariant();
-    }
 
     bool success = executeUpdate("users", userId, data);
     if (!success) {
@@ -626,9 +600,9 @@ bool Database::deleteUser(int userId)
     return executeDelete("users", userId);
 }
 
-bool Database::checkUsernameExists(const QString& username, int excludeUserId)
+bool Database::checkUsernameExists(const QString& account, int excludeUserId)
 {
-    QString condition = QString("username = '%1'").arg(username);
+    QString condition = QString("account = '%1'").arg(account);
     if (excludeUserId >= 0) {
         condition += QString(" AND user_id != %1").arg(excludeUserId);
     }
@@ -637,11 +611,11 @@ bool Database::checkUsernameExists(const QString& username, int excludeUserId)
     return !users.isEmpty();
 }
 
-bool Database::validateUser(const QString& username, const QString& password,
+bool Database::validateUser(const QString& account, const QString& password,
                             int role, int& userId)
 {
-    QString condition = QString("username = '%1' AND password = '%2' AND role = %3")
-    .arg(username).arg(password).arg(role);
+    QString condition = QString("account = '%1' AND password = '%2' AND role = %3")
+    .arg(account).arg(password).arg(role);
 
     auto users = executeSelect("users", condition);
 
@@ -686,8 +660,7 @@ QString Database::executeSQL(const QString& sql)
             continue;
         }
 
-        allResults += QString("\n=== 执行第 %1 条SQL ===").arg(i + 1);
-        allResults += QString("\nSQL: %1\n").arg(statement);
+        allResults += QString("SQL: %1\n").arg(statement);
 
         QSqlQuery query;
         bool success = query.exec(statement);

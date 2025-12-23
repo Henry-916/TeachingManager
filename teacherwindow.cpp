@@ -12,12 +12,15 @@ TeacherWindow::TeacherWindow(const User &user, QWidget *parent)
     : BaseWindow(user, parent)
     , m_teacherId(0)
 {
-    auto users = db.getUsers();
-    for (const auto& userData : users) {
-        if (userData["user_id"].toInt() == m_currentUser.getId()) {
-            m_teacherId = userData["teacher_id"].toInt();
-            break;
+    // 对于教师角色，账号就是教师工号
+    if (user.getRole() == UserRole::Teacher) {
+        bool ok;
+        m_teacherId = user.getUsername().toInt(&ok);
+        if (!ok || m_teacherId <= 0) {
+            QMessageBox::warning(nullptr, "错误", "教师工号格式错误");
         }
+    } else {
+        QMessageBox::warning(nullptr, "错误", "当前用户不是教师角色");
     }
 
     setupTopBar();
@@ -52,40 +55,16 @@ void TeacherWindow::setupUI()
     infoLayout->addWidget(infoLabel);
 
     infoTable = new QTableWidget();
-    setupTable(infoTable, {"工号", "姓名", "年龄"});  // 修改这里：使用基类的setupTable
+    setupCommonTable(infoTable, {"工号", "姓名", "年龄"});
     infoLayout->addWidget(infoTable);
 
-    // === 修改密码功能 ===
-    passwordGroup = new QGroupBox("修改密码");
-    QGridLayout *passwordLayout = new QGridLayout(passwordGroup);
-
-    passwordLayout->addWidget(new QLabel("当前密码:"), 0, 0);
-    currentPasswordEdit = new QLineEdit();
-    currentPasswordEdit->setEchoMode(QLineEdit::Password);
-    currentPasswordEdit->setPlaceholderText("请输入当前密码");
-    passwordLayout->addWidget(currentPasswordEdit, 0, 1);
-
-    passwordLayout->addWidget(new QLabel("新密码:"), 1, 0);
-    newPasswordEdit = new QLineEdit();
-    newPasswordEdit->setEchoMode(QLineEdit::Password);
-    newPasswordEdit->setPlaceholderText("请输入新密码（至少6位）");
-    passwordLayout->addWidget(newPasswordEdit, 1, 1);
-
-    passwordLayout->addWidget(new QLabel("确认新密码:"), 2, 0);
-    confirmPasswordEdit = new QLineEdit();
-    confirmPasswordEdit->setEchoMode(QLineEdit::Password);
-    confirmPasswordEdit->setPlaceholderText("请再次输入新密码");
-    passwordLayout->addWidget(confirmPasswordEdit, 2, 1);
-
-    changePasswordButton = new QPushButton("修改密码");
-    changePasswordButton->setStyleSheet("background-color: #228B22; color: white; padding: 5px;");
-    passwordLayout->addWidget(changePasswordButton, 3, 0, 1, 2);
-
+    // 使用基类的密码修改组
+    passwordGroup = createPasswordChangeGroup();
     infoLayout->addWidget(passwordGroup);
 
     tabWidget->addTab(infoTab, "个人信息");
 
-    // === 我的授课标签页（只读）===
+    // === 我的授课标签页 ===
     QWidget *teachingTab = new QWidget();
     QVBoxLayout *teachingLayout = new QVBoxLayout(teachingTab);
 
@@ -95,20 +74,19 @@ void TeacherWindow::setupUI()
     teachingLayout->addWidget(teachingLabel);
 
     teachingsTable = new QTableWidget();
-    setupTable(teachingsTable, {"课程ID", "课程名称", "学期", "上课时间", "教室"});  // 修改这里
+    setupCommonTable(teachingsTable, {"课程ID", "课程名称", "学期", "上课时间", "教室"});
     teachingLayout->addWidget(teachingsTable);
 
     // 刷新按钮
     QHBoxLayout *refreshTeachingLayout = new QHBoxLayout();
     QPushButton *refreshTeachingButton = new QPushButton("刷新");
-
     refreshTeachingLayout->addWidget(refreshTeachingButton);
     refreshTeachingLayout->addStretch();
     teachingLayout->addLayout(refreshTeachingLayout);
 
     tabWidget->addTab(teachingTab, "我的授课");
 
-    // === 学生成绩管理标签页（只读）===
+    // === 学生成绩管理标签页 ===
     QWidget *studentsTab = new QWidget();
     QVBoxLayout *studentsLayout = new QVBoxLayout(studentsTab);
 
@@ -118,13 +96,12 @@ void TeacherWindow::setupUI()
     studentsLayout->addWidget(studentsLabel);
 
     studentsTable = new QTableWidget();
-    setupTable(studentsTable, {"学生学号", "学生姓名", "课程名称", "学期", "成绩"});  // 修改这里
+    setupCommonTable(studentsTable, {"学生学号", "学生姓名", "课程名称", "学期", "成绩"});
     studentsLayout->addWidget(studentsTable);
 
     // 刷新按钮
     QHBoxLayout *refreshStudentsLayout = new QHBoxLayout();
     QPushButton *refreshStudentsButton = new QPushButton("刷新");
-
     refreshStudentsLayout->addWidget(refreshStudentsButton);
     refreshStudentsLayout->addStretch();
     studentsLayout->addLayout(refreshStudentsLayout);
@@ -134,10 +111,20 @@ void TeacherWindow::setupUI()
     // === 连接信号槽 ===
     connect(refreshTeachingButton, &QPushButton::clicked, this, &TeacherWindow::loadMyTeachings);
     connect(refreshStudentsButton, &QPushButton::clicked, this, &TeacherWindow::loadCourseStudents);
-    connect(changePasswordButton, &QPushButton::clicked, this, &TeacherWindow::onChangePassword);
-    connect(currentPasswordEdit, &QLineEdit::returnPressed, this, &TeacherWindow::onChangePassword);
-    connect(newPasswordEdit, &QLineEdit::returnPressed, this, &TeacherWindow::onChangePassword);
-    connect(confirmPasswordEdit, &QLineEdit::returnPressed, this, &TeacherWindow::onChangePassword);
+
+    // 重要：检查指针不为空再连接
+    if (changePasswordButton) {
+        connect(changePasswordButton, &QPushButton::clicked, this, &TeacherWindow::onChangePassword);
+    }
+    if (currentPasswordEdit) {
+        connect(currentPasswordEdit, &QLineEdit::returnPressed, this, &TeacherWindow::onChangePassword);
+    }
+    if (newPasswordEdit) {
+        connect(newPasswordEdit, &QLineEdit::returnPressed, this, &TeacherWindow::onChangePassword);
+    }
+    if (confirmPasswordEdit) {
+        connect(confirmPasswordEdit, &QLineEdit::returnPressed, this, &TeacherWindow::onChangePassword);
+    }
 
     loadData();
 }
@@ -146,9 +133,7 @@ void TeacherWindow::onChangePassword()
 {
     changePassword(currentPasswordEdit->text(),
                    newPasswordEdit->text(),
-                   confirmPasswordEdit->text(),
-                   QVariant(),  // 学生ID为空
-                   QVariant(m_teacherId));  // 教师ID
+                   confirmPasswordEdit->text());
 }
 
 void TeacherWindow::loadData()

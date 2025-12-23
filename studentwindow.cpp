@@ -12,13 +12,15 @@ StudentWindow::StudentWindow(const User &user, QWidget *parent)
     : BaseWindow(user, parent)
     , m_studentId(0)
 {
-    // 从数据库获取学生的student_id
-    auto users = db.getUsers();
-    for (const auto& userData : users) {
-        if (userData["user_id"].toInt() == m_currentUser.getId()) {
-            m_studentId = userData["student_id"].toInt();
-            break;
+    // 对于学生角色，账号就是学生学号
+    if (user.getRole() == UserRole::Student) {
+        bool ok;
+        m_studentId = user.getUsername().toInt(&ok);
+        if (!ok || m_studentId <= 0) {
+            QMessageBox::warning(nullptr, "错误", "学生学号格式错误");
         }
+    } else {
+        QMessageBox::warning(nullptr, "错误", "当前用户不是学生角色");
     }
 
     setupTopBar();
@@ -53,40 +55,16 @@ void StudentWindow::setupUI()
     infoLayout->addWidget(infoLabel);
 
     infoTable = new QTableWidget();
-    setupTable(infoTable, {"学号", "姓名", "年龄", "学分"});  // 修改这里：使用基类的setupTable
+    setupCommonTable(infoTable, {"学号", "姓名", "年龄", "学分"});
     infoLayout->addWidget(infoTable);
 
-    // === 修改密码功能 ===
-    passwordGroup = new QGroupBox("修改密码");
-    QGridLayout *passwordLayout = new QGridLayout(passwordGroup);
-
-    passwordLayout->addWidget(new QLabel("当前密码:"), 0, 0);
-    currentPasswordEdit = new QLineEdit();
-    currentPasswordEdit->setEchoMode(QLineEdit::Password);
-    currentPasswordEdit->setPlaceholderText("请输入当前密码");
-    passwordLayout->addWidget(currentPasswordEdit, 0, 1);
-
-    passwordLayout->addWidget(new QLabel("新密码:"), 1, 0);
-    newPasswordEdit = new QLineEdit();
-    newPasswordEdit->setEchoMode(QLineEdit::Password);
-    newPasswordEdit->setPlaceholderText("请输入新密码（至少6位）");
-    passwordLayout->addWidget(newPasswordEdit, 1, 1);
-
-    passwordLayout->addWidget(new QLabel("确认新密码:"), 2, 0);
-    confirmPasswordEdit = new QLineEdit();
-    confirmPasswordEdit->setEchoMode(QLineEdit::Password);
-    confirmPasswordEdit->setPlaceholderText("请再次输入新密码");
-    passwordLayout->addWidget(confirmPasswordEdit, 2, 1);
-
-    changePasswordButton = new QPushButton("修改密码");
-    changePasswordButton->setStyleSheet("background-color: #228B22; color: white; padding: 5px;");
-    passwordLayout->addWidget(changePasswordButton, 3, 0, 1, 2);
-
+    // 使用基类的密码修改组
+    passwordGroup = createPasswordChangeGroup();
     infoLayout->addWidget(passwordGroup);
 
     tabWidget->addTab(infoTab, "个人信息");
 
-    // === 我的选课标签页（只读）===
+    // === 我的选课标签页 ===
     QWidget *enrollmentTab = new QWidget();
     QVBoxLayout *enrollmentLayout = new QVBoxLayout(enrollmentTab);
 
@@ -96,49 +74,34 @@ void StudentWindow::setupUI()
     enrollmentLayout->addWidget(enrollmentLabel);
 
     myEnrollmentsTable = new QTableWidget();
-    setupTable(myEnrollmentsTable, {"课程名称", "教师", "学期", "成绩"});  // 修改这里
+    setupCommonTable(myEnrollmentsTable, {"课程名称", "教师", "学期", "上课时间", "上课教室", "课程学分", "成绩"});
     enrollmentLayout->addWidget(myEnrollmentsTable);
 
     // 刷新按钮
     QHBoxLayout *refreshLayout = new QHBoxLayout();
     QPushButton *refreshEnrollmentButton = new QPushButton("刷新");
-
     refreshLayout->addWidget(refreshEnrollmentButton);
     refreshLayout->addStretch();
     enrollmentLayout->addLayout(refreshLayout);
 
     tabWidget->addTab(enrollmentTab, "我的选课");
 
-    // === 可选课程标签页（只读）===
-    QWidget *coursesTab = new QWidget();
-    QVBoxLayout *coursesLayout = new QVBoxLayout(coursesTab);
-
-    QLabel *coursesLabel = new QLabel("可选课程列表");
-    coursesLabel->setAlignment(Qt::AlignCenter);
-    coursesLabel->setStyleSheet("font-size: 14px; font-weight: bold;");
-    coursesLayout->addWidget(coursesLabel);
-
-    availableCoursesTable = new QTableWidget();
-    setupTable(availableCoursesTable, {"课程ID", "课程名称", "教师", "学期", "上课时间", "教室"});  // 修改这里
-    coursesLayout->addWidget(availableCoursesTable);
-
-    // 刷新按钮
-    QHBoxLayout *coursesRefreshLayout = new QHBoxLayout();
-    QPushButton *refreshCoursesButton = new QPushButton("刷新");
-
-    coursesRefreshLayout->addWidget(refreshCoursesButton);
-    coursesRefreshLayout->addStretch();
-    coursesLayout->addLayout(coursesRefreshLayout);
-
-    tabWidget->addTab(coursesTab, "可选课程");
-
     // === 连接信号槽 ===
     connect(refreshEnrollmentButton, &QPushButton::clicked, this, &StudentWindow::loadEnrollments);
-    connect(refreshCoursesButton, &QPushButton::clicked, this, &StudentWindow::loadAvailableCourses);
-    connect(changePasswordButton, &QPushButton::clicked, this, &StudentWindow::onChangePassword);
-    connect(currentPasswordEdit, &QLineEdit::returnPressed, this, &StudentWindow::onChangePassword);
-    connect(newPasswordEdit, &QLineEdit::returnPressed, this, &StudentWindow::onChangePassword);
-    connect(confirmPasswordEdit, &QLineEdit::returnPressed, this, &StudentWindow::onChangePassword);
+
+    // 重要：只有当changePasswordButton不为空时才连接
+    if (changePasswordButton) {
+        connect(changePasswordButton, &QPushButton::clicked, this, &StudentWindow::onChangePassword);
+    }
+    if (currentPasswordEdit) {
+        connect(currentPasswordEdit, &QLineEdit::returnPressed, this, &StudentWindow::onChangePassword);
+    }
+    if (newPasswordEdit) {
+        connect(newPasswordEdit, &QLineEdit::returnPressed, this, &StudentWindow::onChangePassword);
+    }
+    if (confirmPasswordEdit) {
+        connect(confirmPasswordEdit, &QLineEdit::returnPressed, this, &StudentWindow::onChangePassword);
+    }
 
     loadData();
 }
@@ -147,16 +110,13 @@ void StudentWindow::onChangePassword()
 {
     changePassword(currentPasswordEdit->text(),
                    newPasswordEdit->text(),
-                   confirmPasswordEdit->text(),
-                   QVariant(m_studentId),  // 学生ID
-                   QVariant());  // 教师ID为空
+                   confirmPasswordEdit->text());
 }
 
 void StudentWindow::loadData()
 {
     loadStudentInfo();
     loadEnrollments();
-    loadAvailableCourses();
 }
 
 void StudentWindow::loadStudentInfo()
@@ -187,7 +147,8 @@ void StudentWindow::loadEnrollments()
     QSqlQuery query;
     QString sql = QString(
                       "SELECT c.name as course_name, "
-                      "te.name as teacher_name, c.semester, e.score "
+                      "te.name as teacher_name, c.semester, "
+                      "t.class_time, t.classroom, c.credit, e.score "
                       "FROM enrollments e "
                       "LEFT JOIN courses c ON e.course_id = c.course_id "
                       "LEFT JOIN teachings t ON e.course_id = t.course_id "
@@ -205,44 +166,10 @@ void StudentWindow::loadEnrollments()
             myEnrollmentsTable->setItem(row, 0, new QTableWidgetItem(query.value("course_name").toString()));
             myEnrollmentsTable->setItem(row, 1, new QTableWidgetItem(query.value("teacher_name").toString()));
             myEnrollmentsTable->setItem(row, 2, new QTableWidgetItem(query.value("semester").toString()));
-            myEnrollmentsTable->setItem(row, 3, new QTableWidgetItem(query.value("score").toString()));
-            row++;
-        }
-    }
-}
-
-void StudentWindow::loadAvailableCourses()
-{
-    QString sql = QString(
-                      "SELECT t.course_id, c.name as course_name, "
-                      "te.name as teacher_name, c.semester, t.class_time, t.classroom "
-                      "FROM teachings t "
-                      "LEFT JOIN teachers te ON t.teacher_id = te.teacher_id "
-                      "LEFT JOIN courses c ON t.course_id = c.course_id "
-                      "WHERE c.semester = '2024-2025-2' "
-                      "AND NOT EXISTS ("
-                      "    SELECT 1 FROM enrollments e "
-                      "    WHERE e.student_id = %1 "
-                      "    AND e.course_id = t.course_id"
-                      ") "
-                      "ORDER BY t.course_id"
-                      ).arg(m_studentId);
-
-    QSqlQuery query;
-    query.prepare(sql);
-
-    if (query.exec()) {
-        availableCoursesTable->setRowCount(0);
-
-        int row = 0;
-        while (query.next()) {
-            availableCoursesTable->insertRow(row);
-            availableCoursesTable->setItem(row, 0, new QTableWidgetItem(query.value("course_id").toString()));
-            availableCoursesTable->setItem(row, 1, new QTableWidgetItem(query.value("course_name").toString()));
-            availableCoursesTable->setItem(row, 2, new QTableWidgetItem(query.value("teacher_name").toString()));
-            availableCoursesTable->setItem(row, 3, new QTableWidgetItem(query.value("semester").toString()));
-            availableCoursesTable->setItem(row, 4, new QTableWidgetItem(query.value("class_time").toString()));
-            availableCoursesTable->setItem(row, 5, new QTableWidgetItem(query.value("classroom").toString()));
+            myEnrollmentsTable->setItem(row, 3, new QTableWidgetItem(query.value("class_time").toString()));
+            myEnrollmentsTable->setItem(row, 4, new QTableWidgetItem(query.value("classroom").toString()));
+            myEnrollmentsTable->setItem(row, 5, new QTableWidgetItem(query.value("credit").toString()));
+            myEnrollmentsTable->setItem(row, 6, new QTableWidgetItem(query.value("score").toString()));
             row++;
         }
     }

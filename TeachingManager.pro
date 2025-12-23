@@ -7,9 +7,13 @@ CONFIG += c++17
 TARGET = TeachingManager
 TEMPLATE = app
 
-# 只保留实际使用的文件
+# MySQL配置
+INCLUDEPATH += "C:\Program Files\MySQL\MySQL Server 8.0\include"
+LIBS += -L"C:\Program Files\MySQL\MySQL Server 8.0\lib" -llibmysql
+
 SOURCES += \
     basewindow.cpp \
+    configmanager.cpp \
     database.cpp \
     main.cpp \
     mainwindow.cpp \
@@ -20,6 +24,7 @@ SOURCES += \
 
 HEADERS += \
     basewindow.h \
+    configmanager.h \
     database.h \
     mainwindow.h \
     user.h \

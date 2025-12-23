@@ -7,6 +7,7 @@
 #include <QSpacerItem>
 #include <QStyle>
 #include <QFont>
+#include <QLineEdit>
 
 BaseWindow::BaseWindow(const User &user, QWidget *parent)
     : QMainWindow(parent)
@@ -131,8 +132,7 @@ void BaseWindow::loadTableData(QTableWidget* table, const QList<QMap<QString, QV
 }
 
 void BaseWindow::changePassword(const QString& currentPassword, const QString& newPassword,
-                                const QString& confirmPassword, const QVariant& studentId,
-                                const QVariant& teacherId)
+                                const QString& confirmPassword)
 {
     // 验证输入
     if (currentPassword.isEmpty()) {
@@ -166,11 +166,49 @@ void BaseWindow::changePassword(const QString& currentPassword, const QString& n
     }
 
     // 更新密码
-    if (db.updateUser(userId, m_currentUser.getUsername(), newPassword,
-                      role, studentId, teacherId)) {
+    if (db.updateUser(userId, m_currentUser.getUsername(), newPassword, role)) {
         QMessageBox::information(this, "修改成功", "密码修改成功，请重新登录");
         emit logoutRequested();
     } else {
         QMessageBox::warning(this, "修改失败", "密码修改失败，请稍后重试");
     }
+}
+
+// basewindow.cpp - 修改createPasswordChangeGroup函数
+QGroupBox* BaseWindow::createPasswordChangeGroup()
+{
+    passwordGroup = new QGroupBox("修改密码");
+    QGridLayout *passwordLayout = new QGridLayout(passwordGroup);
+
+    passwordLayout->addWidget(new QLabel("当前密码:"), 0, 0);
+    currentPasswordEdit = new QLineEdit();
+    currentPasswordEdit->setEchoMode(QLineEdit::Password);
+    currentPasswordEdit->setPlaceholderText("请输入当前密码");
+    passwordLayout->addWidget(currentPasswordEdit, 0, 1);
+
+    passwordLayout->addWidget(new QLabel("新密码:"), 1, 0);
+    newPasswordEdit = new QLineEdit();
+    newPasswordEdit->setEchoMode(QLineEdit::Password);
+    newPasswordEdit->setPlaceholderText("请输入新密码（至少6位）");
+    passwordLayout->addWidget(newPasswordEdit, 1, 1);
+
+    passwordLayout->addWidget(new QLabel("确认新密码:"), 2, 0);
+    confirmPasswordEdit = new QLineEdit();
+    confirmPasswordEdit->setEchoMode(QLineEdit::Password);
+    confirmPasswordEdit->setPlaceholderText("请再次输入新密码");
+    passwordLayout->addWidget(confirmPasswordEdit, 2, 1);
+
+    changePasswordButton = new QPushButton("修改密码");
+    changePasswordButton->setStyleSheet("background-color: #228B22; color: white; padding: 5px;");
+    passwordLayout->addWidget(changePasswordButton, 3, 0, 1, 2);
+
+    return passwordGroup;
+}
+
+void BaseWindow::setupCommonTable(QTableWidget* table, const QStringList& headers)
+{
+    setupTable(table, headers);
+    table->setAlternatingRowColors(true);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 }

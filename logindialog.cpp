@@ -47,33 +47,25 @@ void LoginDialog::onRoleChanged(int index)
 
 void LoginDialog::updateUIForRole(int role)
 {
-    switch (role) {
-    case 0: // 学生
-        ui->idLabel->setText("学号:");
-        ui->idLabel->setVisible(true);
-        ui->idEdit->setVisible(true);
-        ui->idEdit->setPlaceholderText("请输入学号");
-        ui->idEdit->clear();
-        break;
-    case 1: // 教师
-        ui->idLabel->setText("工号:");
-        ui->idLabel->setVisible(true);
-        ui->idEdit->setVisible(true);
-        ui->idEdit->setPlaceholderText("请输入工号");
-        ui->idEdit->clear();
-        break;
-    case 2: // 管理员
-        ui->idLabel->setText("用户名:");
-        ui->idLabel->setVisible(true);
-        ui->idEdit->setVisible(true);
-        ui->idEdit->setPlaceholderText("请输入管理员用户名");
-        ui->idEdit->clear();
-        break;
+    // 使用静态映射表简化代码
+    static const QMap<int, QString> roleLabels = {
+        {0, "学号:"},
+        {1, "工号:"},
+        {2, "账号:"}
+    };
+
+    static const QMap<int, QString> placeholders = {
+        {0, "请输入学号"},
+        {1, "请输入工号"},
+        {2, "请输入管理员账号"}
+    };
+
+    if (roleLabels.contains(role)) {
+        ui->idLabel->setText(roleLabels[role]);
+        ui->idEdit->setPlaceholderText(placeholders[role]);
     }
 
-    // 强制更新布局
-    ui->formLayout->update();
-    ui->verticalLayout->update();
+    ui->idEdit->clear();
 }
 
 void LoginDialog::onLoginButtonClicked()
@@ -84,7 +76,7 @@ void LoginDialog::onLoginButtonClicked()
 
     if (identifier.isEmpty() || password.isEmpty()) {
         if (role == 2) {
-            QMessageBox::warning(this, "输入错误", "请输入用户名和密码");
+            QMessageBox::warning(this, "输入错误", "请输入账号和密码");
         } else {
             QMessageBox::warning(this, "输入错误",
                                  role == 0 ? "请输入学号和密码" : "请输入工号和密码");
@@ -94,67 +86,27 @@ void LoginDialog::onLoginButtonClicked()
 
     qDebug() << "尝试登录:";
     qDebug() << "角色:" << role;
-    qDebug() << "标识:" << identifier;
+    qDebug() << "账号:" << identifier;
 
     bool loginSuccess = false;
     int userId = -1;
-    QString username = "";
+    QString account = identifier;
 
-    if (role == 2) { // 管理员登录
-        // 管理员使用用户名和密码登录
-        QSqlQuery query;
-        query.prepare("SELECT user_id, username FROM users "
-                      "WHERE username = ? AND password = ? AND role = ?");
-        query.addBindValue(identifier);
-        query.addBindValue(password);
-        query.addBindValue(role);
-
-        if (query.exec() && query.next()) {
-            userId = query.value(0).toInt();
-            username = query.value(1).toString();
-            loginSuccess = true;
-        }
-    } else { // 学生或教师登录
-        // 学生或教师使用ID和密码登录
-        bool ok;
-        int id = identifier.toInt(&ok);
-        if (!ok) {
-            QMessageBox::warning(this, "输入错误",
-                                 role == 0 ? "学号必须是数字" : "工号必须是数字");
-            return;
-        }
-
-        QSqlQuery query;
-        if (role == 0) { // 学生
-            query.prepare("SELECT u.user_id, u.username FROM users u "
-                          "INNER JOIN students s ON u.student_id = s.student_id "
-                          "WHERE u.student_id = ? AND u.password = ? AND u.role = ?");
-        } else { // 教师
-            query.prepare("SELECT u.user_id, u.username FROM users u "
-                          "INNER JOIN teachers t ON u.teacher_id = t.teacher_id "
-                          "WHERE u.teacher_id = ? AND u.password = ? AND u.role = ?");
-        }
-        query.addBindValue(id);
-        query.addBindValue(password);
-        query.addBindValue(role);
-
-        if (query.exec() && query.next()) {
-            userId = query.value(0).toInt();
-            username = query.value(1).toString();
-            loginSuccess = true;
-        }
+    // 统一验证逻辑：使用账号、密码和角色进行验证
+    if (m_db.validateUser(account, password, role, userId)) {
+        loginSuccess = true;
     }
 
     if (loginSuccess) {
         UserRole userRole = static_cast<UserRole>(role);
-        m_currentUser = User(userId, username, userRole);
+        m_currentUser = User(userId, account, userRole);  // account作为username
         m_loggedIn = true;
-        qDebug() << "登录成功! 用户ID:" << userId << "用户名:" << username;
+        qDebug() << "登录成功! 用户ID:" << userId << "账号:" << account;
         accept();
     } else {
-        qDebug() << "登录失败: 用户名/ID或密码错误";
+        qDebug() << "登录失败: 账号或密码错误";
         if (role == 2) {
-            QMessageBox::warning(this, "登录失败", "用户名或密码错误");
+            QMessageBox::warning(this, "登录失败", "账号或密码错误");
         } else {
             QMessageBox::warning(this, "登录失败",
                                  role == 0 ? "学号或密码错误" : "工号或密码错误");

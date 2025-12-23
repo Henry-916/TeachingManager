@@ -167,7 +167,7 @@ void MainWindow::createUserManagementTab()
 
     // 创建表格
     userTable = new QTableWidget();
-    QStringList headers = {"用户ID", "用户名", "密码", "角色", "关联学生ID", "关联教师ID", "创建时间"};
+    QStringList headers = {"用户ID", "账号", "密码", "角色"};
     setupTable(userTable, headers);
     layout->addWidget(userTable);
 
@@ -244,10 +244,13 @@ void MainWindow::loadTable(const QString& tableName, QTableWidget* table)
     auto data = db.executeSelect(tableName);
     table->setRowCount(data.size());
 
-    // 根据表名使用不同的加载逻辑
     if (tableName == "students") {
+        // 确保列顺序与表头一致：{"学号", "姓名", "年龄", "学分"}
         for (int i = 0; i < data.size(); i++) {
             const auto& rowData = data[i];
+            // 注意：executeSelect 返回的字段顺序是固定的
+            // 在 Database::executeSelect() 中，students 表的查询字段顺序是：
+            // student_id, name, age, credits
             table->setItem(i, 0, new QTableWidgetItem(rowData["student_id"].toString()));
             table->setItem(i, 1, new QTableWidgetItem(rowData["name"].toString()));
             table->setItem(i, 2, new QTableWidgetItem(rowData["age"].toString()));
@@ -255,33 +258,48 @@ void MainWindow::loadTable(const QString& tableName, QTableWidget* table)
         }
     }
     else if (tableName == "teachers") {
+        // 列顺序：{"工号", "姓名", "年龄"}
         for (int i = 0; i < data.size(); i++) {
             const auto& rowData = data[i];
+            // 字段顺序：teacher_id, name, age
             table->setItem(i, 0, new QTableWidgetItem(rowData["teacher_id"].toString()));
             table->setItem(i, 1, new QTableWidgetItem(rowData["name"].toString()));
             table->setItem(i, 2, new QTableWidgetItem(rowData["age"].toString()));
         }
     }
     else if (tableName == "courses") {
+        // 列顺序：{"课程ID", "课程名称", "学分", "学期"}
         for (int i = 0; i < data.size(); i++) {
             const auto& rowData = data[i];
+            // 字段顺序：course_id, name, credit, semester
             table->setItem(i, 0, new QTableWidgetItem(rowData["course_id"].toString()));
             table->setItem(i, 1, new QTableWidgetItem(rowData["name"].toString()));
             table->setItem(i, 2, new QTableWidgetItem(rowData["credit"].toString()));
             table->setItem(i, 3, new QTableWidgetItem(rowData["semester"].toString()));
         }
     }
-    else {
-        // 对于其他表，使用通用方法
+    else if (tableName == "users") {
+        // 列顺序：{"用户ID", "账号", "密码", "角色", "关联学生ID", "关联教师ID", "创建时间"}
         for (int i = 0; i < data.size(); i++) {
             const auto& rowData = data[i];
-            int col = 0;
-            for (auto it = rowData.begin(); it != rowData.end(); ++it) {
-                if (col < table->columnCount()) {
-                    table->setItem(i, col, new QTableWidgetItem(it.value().toString()));
-                    col++;
-                }
+            table->setItem(i, 0, new QTableWidgetItem(rowData["user_id"].toString()));
+            table->setItem(i, 1, new QTableWidgetItem(rowData["username"].toString()));
+            table->setItem(i, 2, new QTableWidgetItem(rowData["password"].toString()));
+
+            // 角色：转换为文字
+            int role = rowData["role"].toInt();
+            QString roleStr;
+            switch (role) {
+            case 0: roleStr = "学生"; break;
+            case 1: roleStr = "教师"; break;
+            case 2: roleStr = "管理员"; break;
+            default: roleStr = "未知";
             }
+            table->setItem(i, 3, new QTableWidgetItem(roleStr));
+
+            table->setItem(i, 4, new QTableWidgetItem(rowData["student_id"].toString()));
+            table->setItem(i, 5, new QTableWidgetItem(rowData["teacher_id"].toString()));
+            table->setItem(i, 6, new QTableWidgetItem(rowData["created_at"].toString()));
         }
     }
 }
@@ -299,6 +317,9 @@ void MainWindow::loadTeachings()
     QString lastCourseId = "";
     bool useColor1 = true;
 
+    // 表头顺序：{"教师工号", "教师姓名", "课程ID", "课程名称", "学期", "上课时间", "教室"}
+    // 数据库返回的字段顺序：teacher_id, teacher_name, course_id, course_name, semester, class_time, classroom
+
     for (int i = 0; i < data.size(); i++) {
         const auto& row = data[i];
 
@@ -313,7 +334,7 @@ void MainWindow::loadTeachings()
         QColor rowColor = useColor1 ? color1 : color2;
 
         // 根据表头顺序填充列
-        // 表头：{"教师工号", "教师姓名", "课程ID", "课程名称", "学期", "上课时间", "教室"}
+        // 注意：这里必须严格按照表头顺序填充
         teachingTable->setItem(i, 0, new QTableWidgetItem(row["teacher_id"].toString()));
         teachingTable->setItem(i, 1, new QTableWidgetItem(row["teacher_name"].toString()));
         teachingTable->setItem(i, 2, new QTableWidgetItem(row["course_id"].toString()));
@@ -344,6 +365,9 @@ void MainWindow::loadEnrollments()
     QString lastCourseId = "";
     bool useColor1 = true;
 
+    // 表头顺序：{"学生学号", "学生姓名", "课程ID", "课程名称", "学期", "成绩"}
+    // 数据库返回的字段顺序：student_id, student_name, course_id, course_name, semester, score
+
     for (int i = 0; i < data.size(); i++) {
         const auto& row = data[i];
 
@@ -358,7 +382,6 @@ void MainWindow::loadEnrollments()
         QColor rowColor = useColor1 ? color1 : color2;
 
         // 根据表头顺序填充列
-        // 表头：{"学生学号", "学生姓名", "课程ID", "课程名称", "学期", "成绩"}
         enrollmentTable->setItem(i, 0, new QTableWidgetItem(row["student_id"].toString()));
         enrollmentTable->setItem(i, 1, new QTableWidgetItem(row["student_name"].toString()));
         enrollmentTable->setItem(i, 2, new QTableWidgetItem(row["course_id"].toString()));
@@ -380,13 +403,17 @@ void MainWindow::loadUsers()
     auto data = db.getUsers();
     userTable->setRowCount(data.size());
 
+    // 表头顺序：{"用户ID", "账号", "密码", "角色"}
     for (int i = 0; i < data.size(); i++) {
         const auto& user = data[i];
 
-        // 根据表头顺序设置列数据
-        // 表头顺序：{"用户ID", "用户名", "密码", "角色", "关联学生ID", "关联教师ID", "创建时间"}
+        // 列0: 用户ID
         userTable->setItem(i, 0, new QTableWidgetItem(user["user_id"].toString()));
-        userTable->setItem(i, 1, new QTableWidgetItem(user["username"].toString()));
+
+        // 列1: 账号
+        userTable->setItem(i, 1, new QTableWidgetItem(user["account"].toString()));
+
+        // 列2: 密码
         userTable->setItem(i, 2, new QTableWidgetItem(user["password"].toString()));
 
         // 列3: 角色 - 转换为文字
@@ -399,15 +426,6 @@ void MainWindow::loadUsers()
         default: roleStr = "未知";
         }
         userTable->setItem(i, 3, new QTableWidgetItem(roleStr));
-
-        // 列4: 关联学生ID
-        userTable->setItem(i, 4, new QTableWidgetItem(user["student_id"].toString()));
-
-        // 列5: 关联教师ID
-        userTable->setItem(i, 5, new QTableWidgetItem(user["teacher_id"].toString()));
-
-        // 列6: 创建时间
-        userTable->setItem(i, 6, new QTableWidgetItem(user["created_at"].toString()));
     }
 }
 
